@@ -1,0 +1,3 @@
+ALTER TABLE users ADD COLUMN last_active DATETIME NULL;
+ALTER TABLE guest_tokens ADD COLUMN last_active DATETIME NULL;
+ALTER TABLE shared_links ADD COLUMN title VARCHAR(255) NULL;

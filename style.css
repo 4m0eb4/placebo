@@ -1,0 +1,786 @@
+/* GLOBAL RESET & FONTS */
+:root {
+    /* --- CORE THEME VARIABLES --- */
+    --bg-color: #0d0d0d;
+    --text-main: #b0b0b0;
+    --accent-primary: #6a9c6a; /* Green */
+    --accent-secondary: #d19a66; /* Orange/Gold */
+    --accent-alert: #e06c75; /* Red */
+    --panel-bg: #161616;
+    --border-color: #333;
+    
+    /* Background Image Placeholder (Set via Admin or Class later) */
+    --bg-image: none; 
+    --overlay-opacity: 0.85; /* High opacity for readability on Tor */
+}
+
+body {
+    background-color: var(--bg-color);
+    background-image: var(--bg-image);
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    /* Blend mode helps text pop against busy images */
+    background-blend-mode: overlay; 
+    
+    color: var(--text-main);
+    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+a { text-decoration: none; color: #5a8a8a; }
+a:hover { color: #7aaiai; }
+
+/* UTILITIES */
+.error { color: #e06c75; margin-bottom: 10px; font-size: 0.8rem; }
+.success { color: #6a9c6a; margin-bottom: 10px; font-size: 0.8rem; }
+
+/* --- LOGIN / TERMINAL LAYOUT --- */
+.login-wrapper {
+    width: 420px;
+    background: #161616;
+    border: 1px solid #333;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    position: relative;
+    padding-bottom: 20px;
+}
+
+.terminal-header {
+    background: #1f1f1f;
+    padding: 10px 15px;
+    border-bottom: 1px solid #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+}
+.terminal-footer {
+  width: fit-content; /* Ensures the box only takes up the space of the text */
+  margin: 0 auto;
+  font-family: monospace; /* Fits the 'terminal' aesthetic */
+}
+.term-title { color: #888; letter-spacing: 1px; }
+
+/* NEW ANIMATED LOGO */
+.term-logo {
+    color: #888;
+    letter-spacing: 1px;
+    text-decoration: none;
+    font-weight: bold;
+    display: inline-block;
+    transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.term-logo:hover {
+    color: #6a9c6a;
+    letter-spacing: 4px; /* Expander Effect */
+    text-shadow: 0 0 10px rgba(106, 156, 106, 0.6); /* Neon Glow */
+    transform: scale(1.02);
+}
+
+.term-status { font-weight: bold; }
+.status-ok { color: #6a9c6a; }
+.status-warn { color: #e5c07b; }
+
+.terminal-alert {
+    background: #2c1a1a;
+    color: #e06c75;
+    padding: 10px 15px;
+    font-size: 0.8rem;
+    border-bottom: 1px solid #3e2e2e;
+}
+
+/* FORMS */
+.login-form, .challenge-form { padding: 25px; }
+
+.input-group { margin-bottom: 20px; }
+.input-group label {
+    display: block;
+    color: #555;
+    font-size: 0.7rem;
+    margin-bottom: 5px;
+    letter-spacing: 1px;
+}
+.input-group input, .input-group textarea {
+    background: #0a0a0a;
+    border: 1px solid #333;
+    color: #ccc;
+    font-family: inherit;
+    padding: 12px;
+    width: 100%;
+    outline: none;
+    box-sizing: border-box;
+    transition: border 0.2s;
+}
+.input-group input:focus { border-color: #6a9c6a; }
+.input-group textarea.pgp-box { 
+    height: 150px; 
+    font-size: 0.65rem; 
+    white-space: pre-wrap;
+}
+
+/* BUTTONS */
+.btn-primary, .btn-verify {
+    width: 100%;
+    padding: 14px;
+    background: #1f2329;
+    border: 1px solid #333;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+}
+.btn-primary:hover, .btn-verify:hover {
+    background: #2d333d;
+    border-color: #6a9c6a;
+    color: #6a9c6a;
+}
+.btn-verify { margin-top: 15px; border-color: #3e4451; }
+.link-secondary { display: block; text-align: center; margin-top: 15px; font-size: 0.7rem; color: #555; }
+
+/* --- CHALLENGE / CAPTCHA UI --- */
+.challenge-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px; font-size: 0.8rem; color: #888;
+}
+
+/* TIMER */
+.timer-box { font-size: 0.75rem; color: #e5c07b; font-weight: bold; }
+
+.timer-container { width: 100%; height: 2px; background: #222; margin-bottom: 10px; }
+.timer-bar { height: 100%; width: 100%; animation: countdown linear forwards; }
+@keyframes countdown { 
+    0% { width: 100%; background-color: #6a9c6a; } 
+    60% { background-color: #d19a66; } 
+    100% { width: 0%; background-color: #e06c75; } 
+}
+
+.timer-expired-label {
+    text-align: center; color: #ff4444; font-size: 0.8rem;
+    height: 0; overflow: hidden; opacity: 0;
+    animation: show-expired 0s linear 45s forwards;
+}
+@keyframes show-expired { to { height: auto; opacity: 1; margin-bottom: 10px; } }
+
+/* PATTERN DISPLAY */
+.pattern-list {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 10px 0;
+}
+.pattern-item {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    border: 1px solid;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.2);
+    font-weight: 500;
+}
+/* --- UPDATED GRID ALIGNMENT & BORDER --- */
+.grid-outer {
+    display: flex;
+    justify-content: center;
+    background: #121212;
+    padding: 10px;
+    border-radius: 4px;
+    margin: 20px 0;
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.grid-wrapper {
+    position: relative;
+    /* Width/Height are injected by PHP, no hardcode here */
+    box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+.grid-wrapper img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    display: block; /* Removes phantom bottom margin */
+}
+
+.grid-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    display: grid;
+    /* Columns/Rows injected by PHP */
+}
+
+.grid-cell input { display: none; }
+
+.grid-cell label {
+    display: block;
+    cursor: pointer;
+    box-sizing: border-box; /* Critical for border math */
+    border: 1px solid transparent; /* Placeholder to prevent jump on hover */
+    transition: all 0.1s;
+}
+
+/* HOVER STATE: Subtle white outline */
+.grid-cell label:hover {
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(255,255,255,0.05);
+}
+
+/* SELECTED STATE: "Black Outline" Trick */
+/* We use a thick black border to "eat" into the color, 
+   plus a thin white shadow to define the edge against the black background */
+.grid-cell input:checked + label {
+    border: 4px solid #000; 
+    box-shadow: inset 0 0 0 1px #555; /* Subtle inner grey line for definition */
+}
+/* --- TAB SYSTEM (NO-JS) --- */
+.tab-system {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Hide the actual radio buttons */
+.tab-system input[type="radio"] {
+    display: none;
+}
+
+/* Tab Navigation Bar */
+.tab-nav {
+    display: flex;
+    border-bottom: 1px solid #333;
+    background: #111;
+}
+
+.tab-btn {
+    padding: 12px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: center;
+    color: #666;
+    border-right: 1px solid #222;
+    transition: background 0.2s, color 0.2s;
+    letter-spacing: 1px;
+}
+
+.tab-btn:hover {
+    color: #ccc;
+    background: #1a1a1a;
+}
+
+/* Specific Sizes */
+.small-tab { width: 35%; }
+.big-tab { width: 65%; font-weight: bold; border-right: none; }
+
+/* Active State Logic */
+#tab1:checked ~ .tab-nav label[for="tab1"],
+#tab2:checked ~ .tab-nav label[for="tab2"] {
+    background: #161616; /* Matches body bg */
+    color: #6a9c6a;
+    border-bottom: 1px solid #161616; /* Hides the border line */
+    margin-bottom: -1px; /* Pushes over the line */
+}
+
+/* Show/Hide Content Logic */
+.tab-content { display: none; padding: 25px; }
+
+#tab1:checked ~ .content-info { display: block; }
+#tab2:checked ~ .content-reg { display: block; }
+
+/* --- RULES CONTENT STYLES --- */
+.rules-box h3 {
+    margin: 0 0 15px 0;
+    color: #888;
+    font-size: 0.8rem;
+    border-bottom: 1px solid #333;
+    padding-bottom: 5px;
+}
+.rules-box ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.rules-box li {
+    margin-bottom: 12px;
+    font-size: 0.75rem;
+    color: #aaa;
+    line-height: 1.4;
+}
+.bullet { color: #6a9c6a; margin-right: 5px; }
+.info-note {
+    margin-top: 20px;
+    padding: 10px;
+    background: #0a0a0a;
+    border: 1px solid #333;
+    font-size: 0.7rem;
+    color: #555;
+    text-align: center;
+}
+
+/* --- BOTTOM NAV --- */
+.bottom-nav {
+    text-align: center;
+    padding-bottom: 15px;
+}
+.back-link {
+    font-size: 0.7rem;
+    color: #444;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+.back-link:hover { color: #6a9c6a; }
+
+/* --- TIMER SYMBOL SWAP ANIMATION --- */
+.symbol-s {
+    display: inline-block;
+    width: 20px;
+    text-align: center;
+}
+/* The Hourglass starts hidden */
+.symbol-end {
+    display: inline-block;
+    width: 0; 
+    opacity: 0;
+    overflow: hidden;
+    color: #ff4444; /* Red hourglass */
+    /* Wait for X seconds (set by PHP style), then appear */
+    animation: appear-symbol 0s linear forwards; 
+}
+
+/* This overrides the .symbol-s logic */
+/* Actually, a cleaner way is just to absolutely position them on top of each other */
+
+.timer-box { 
+    position: relative; 
+    display: flex; 
+    align-items: center; 
+    gap: 5px; 
+}
+
+/* We hide the 's' by simply covering it or using display toggle logic via animation */
+/* Let's try the absolute overlay method for the hourglass */
+.symbol-end {
+    position: absolute;
+    right: 0;
+    opacity: 0;
+    /* Animation definition */
+    animation-name: show-hourglass;
+    animation-timing-function: step-end; /* Instantly switch */
+    animation-fill-mode: forwards;
+}
+
+@keyframes show-hourglass {
+    0% { opacity: 0; }
+    100% { opacity: 1; transform: scale(1.2); }
+}
+
+/* We also need to hide the 's' when the hourglass shows */
+.symbol-s {
+    animation-name: hide-s;
+    animation-timing-function: step-end;
+    animation-fill-mode: forwards;
+    /* Duration is set inline in PHP */
+    animation-delay: inherit; /* Inherits from parent or set manually? No, we set inline style on the element */
+}
+
+/* Since inline style sets delay on symbol-end, we need to set it on symbol-s too */
+/* But wait, CSS animation delay is easy. */
+
+/* REVISED ANIMATION LOGIC */
+.symbol-s {
+    /* Simply disappear at the end */
+    animation: toggle-off 0s linear forwards;
+    /* We will inject animation-delay via PHP */
+}
+
+.symbol-end {
+    position: absolute;
+    right: 0; /* Align with the 's' */
+    opacity: 0;
+    animation: toggle-on 0s linear forwards;
+     /* We will inject animation-delay via PHP */
+}
+
+@keyframes toggle-off { to { opacity: 0; width: 0; } }
+@keyframes toggle-on { to { opacity: 1; } }
+/* --- BBCODE FX & ANIMATIONS --- */
+
+/* [warning] Box */
+.bb-warning {
+    background: rgba(224, 108, 117, 0.15);
+    border: 1px solid #e06c75;
+    color: #e06c75;
+    padding: 15px;
+    border-left: 4px solid #e06c75;
+    margin: 15px 0;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+
+/* [spoiler] (Hover to reveal) - Enhanced */
+.bb-spoiler {
+    background: #1a1a1a;
+    color: transparent;
+    border: 1px dashed #333;
+    padding: 0 6px;
+    cursor: help;
+    transition: all 0.3s ease;
+    text-shadow: 0 0 8px rgba(255,255,255,0.1);
+    border-radius: 2px;
+}
+.bb-spoiler:hover {
+    color: #fff;
+    background: #000;
+    border-color: #666;
+    text-shadow: none;
+}
+
+/* [redacted] (Black bar style) */
+.bb-redacted {
+    background: #000;
+    color: #000;
+    padding: 0 5px;
+    user-select: none; /* Prevents simple highlighting to read */
+}
+.bb-redacted:hover {
+    cursor: not-allowed;
+}
+
+/* [blur] (Blurry text, clears on hover) */
+.bb-blur {
+    filter: blur(4px);
+    transition: filter 0.4s ease;
+    cursor: pointer;
+}
+.bb-blur:hover {
+    filter: blur(0);
+}
+
+/* [glow] Text Effect */
+.text-glow {
+    text-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
+}
+
+/* [rainbow] Animation */
+@keyframes rainbow-anim { 
+    0%{color: #e06c75;} 20%{color: #d19a66;} 40%{color: #e5c07b;} 
+    60%{color: #98c379;} 80%{color: #56b6c2;} 100%{color: #c678dd;} 
+}
+.anim-rainbow { animation: rainbow-anim 4s linear infinite; }
+
+/* [glitch] Animation */
+@keyframes glitch-anim {
+    0% { opacity: 1; transform: translateX(0); }
+    92% { opacity: 1; transform: translateX(0); }
+    93% { opacity: 0.8; transform: translateX(2px); }
+    94% { opacity: 1; transform: translateX(-2px); }
+    96% { opacity: 1; transform: translateX(0); }
+    97% { opacity: 0.5; transform: translateX(0); }
+    100% { opacity: 1; transform: translateX(0); }
+}
+.anim-glitch { display:inline-block; animation: glitch-anim 2s infinite; color: #56b6c2; }
+
+/* [pulse] Animation */
+@keyframes pulse-anim { 0%{opacity:1;} 50%{opacity:0.4;} 100%{opacity:1;} }
+.anim-pulse { animation: pulse-anim 1.5s infinite ease-in-out; }
+
+/* [shake] Animation */
+@keyframes shake-anim {
+    0% { transform: translate(1px, 1px) rotate(0deg); }
+    10% { transform: translate(-1px, -2px) rotate(-1deg); }
+    20% { transform: translate(-3px, 0px) rotate(1deg); }
+    30% { transform: translate(3px, 2px) rotate(0deg); }
+    40% { transform: translate(1px, -1px) rotate(1deg); }
+    50% { transform: translate(-1px, 2px) rotate(-1deg); }
+    60% { transform: translate(-3px, 1px) rotate(0deg); }
+    70% { transform: translate(3px, 1px) rotate(-1deg); }
+    80% { transform: translate(-1px, -1px) rotate(1deg); }
+    90% { transform: translate(1px, 2px) rotate(0deg); }
+    100% { transform: translate(1px, -2px) rotate(-1deg); }
+}
+.anim-shake { display: inline-block; animation: shake-anim 0.8s infinite; }
+
+/* [spoiler] (Hover to reveal) */
+.bb-spoiler {
+    background: #1a1a1a;
+    color: transparent;
+    border: 1px dashed #333;
+    padding: 0 4px;
+    cursor: help;
+    transition: all 0.2s;
+    text-shadow: 0 0 5px rgba(255,255,255,0.2);
+}
+.bb-spoiler:hover {
+    color: #fff;
+    background: transparent;
+    border-color: transparent;
+    text-shadow: none;
+}
+
+/* [rainbow] Animation */
+@keyframes rainbow-anim { 
+    0%{color: #e06c75;} 20%{color: #d19a66;} 40%{color: #e5c07b;} 
+    60%{color: #98c379;} 80%{color: #56b6c2;} 100%{color: #c678dd;} 
+}
+.anim-rainbow { animation: rainbow-anim 4s linear infinite; }
+
+/* [glitch] Animation */
+@keyframes glitch-anim {
+    0% { opacity: 1; transform: translateX(0); }
+    92% { opacity: 1; transform: translateX(0); }
+    93% { opacity: 0.8; transform: translateX(2px); }
+    94% { opacity: 1; transform: translateX(-2px); }
+    96% { opacity: 1; transform: translateX(0); }
+    97% { opacity: 0.5; transform: translateX(0); }
+    100% { opacity: 1; transform: translateX(0); }
+}
+.anim-glitch { display:inline-block; animation: glitch-anim 2s infinite; color: #56b6c2; }
+
+/* [pulse] Animation */
+@keyframes pulse-anim { 0%{opacity:1;} 50%{opacity:0.5;} 100%{opacity:1;} }
+.anim-pulse { animation: pulse-anim 1.5s infinite ease-in-out; color: #e5c07b; }
+/* --- SEASONAL & THEME OVERRIDES --- */
+
+/* Christmas Theme (Red/Green/White) */
+body.theme-christmas {
+    --accent-primary: #ff4444;   /* Santa Red */
+    --accent-secondary: #22ff22; /* Tree Green */
+    --text-main: #ffffff;        /* Snow White */
+    --bg-color: #051105;         /* Very Dark Pine Green */
+    --panel-bg: #1a0a0a;         /* Dark Warm Panel */
+    --border-color: #661111;     /* Dark Red Borders */
+}
+
+/* Halloween / Spooky Theme */
+body.theme-spooky {
+    --accent-primary: #d19a66; /* Pumpkin */
+    --accent-secondary: #98c379; /* Slime Green */
+    --accent-alert: #c678dd; /* Purple */
+    --bg-color: #050505;
+}
+
+/* High Contrast / Terminal Green */
+body.theme-matrix {
+    --accent-primary: #00ff00;
+    --accent-secondary: #008f00;
+    --text-main: #00dd00;
+    --bg-color: #000000;
+    --panel-bg: #001100;
+}
+/* --- NO-JS MODAL SYSTEM --- */
+.modal-toggle { display: none; }
+
+/* The Overlay (Hidden by default) */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Show Overlay when Checkbox is Checked */
+.modal-toggle:checked + .modal-overlay {
+    display: flex;
+}
+
+/* The Modal Box */
+.modal-box {
+    width: 500px;
+    height: 350px;
+    background: #161616;
+    border: 1px solid #6a9c6a;
+    box-shadow: 0 0 20px rgba(0,0,0,1);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* Header */
+.modal-header {
+    background: #1f1f1f;
+    padding: 10px 15px;
+    border-bottom: 1px solid #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    color: #888;
+}
+
+/* Close Button (Label) */
+.modal-close {
+    cursor: pointer;
+    color: #e06c75;
+    font-weight: bold;
+}
+.modal-close:hover { color: #ff4444; }
+
+/* Iframe Container */
+.modal-content { flex: 1; overflow: hidden; }
+
+/* [pgp] Block - Copy-safe wrapping */
+pre.bb-pgp {
+    display: block !important;
+    background: #050505 !important;
+    color: #6a9c6a !important;
+    border: 1px solid #222 !important;
+    border-left: 3px solid #6a9c6a !important;
+    padding: 12px !important;
+    margin: 10px 0 !important;
+    font-family: Consolas, "Liberation Mono", Courier, monospace !important;
+    font-size: 0.75rem !important;
+    line-height: 1.2 !important;
+
+    /* PRESERVE REAL NEWLINES, BUT ALSO WRAP LONG LINES ON SCREEN */
+    white-space: pre-wrap !important;     /* preserves \n, allows wrapping */
+    overflow-x: hidden !important;        /* no horizontal scroll */
+    overflow-wrap: anywhere !important;   /* wrap long base64 without spaces */
+    word-break: break-word !important;    /* fallback wrapping */
+}
+
+/* [pgp] Block - Total Line Preservation */
+.bb-pgp-block {
+    display: block !important;
+    background: #050505 !important;
+    color: #6a9c6a !important;
+    border: 1px solid #222 !important;
+    border-left: 3px solid #6a9c6a !important;
+    padding: 15px !important;
+    margin: 10px 0 !important;
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 0.75rem !important;
+    line-height: 1.4 !important;
+    
+    /* THE FIX: TOTAL PRESERVATION */
+    white-space: pre !important;      /* Absolute line preservation */
+    overflow-x: auto !important;      /* Scroll sideways if too long */
+    word-break: keep-all !important;  /* Do not break words */
+    word-wrap: normal !important;     /* Do not wrap to new line */
+    tab-size: 4;
+}
+/* [cmd] Terminal Command */
+.bb-cmd {
+    background: #000;
+    color: #ccc;
+    font-family: monospace;
+    padding: 2px 6px;
+    border: 1px solid #333;
+    border-left: 3px solid #6a9c6a;
+    display: inline-block;
+}
+.bb-cmd::before { content: "$ "; color: #6a9c6a; }
+
+/* [ascii] Art Preservation */
+.bb-ascii {
+    display: block;
+    font-family: monospace;
+    white-space: pre;
+    line-height: 1;
+    font-size: 0.65rem; /* Smaller for ASCII art fitting */
+    overflow-x: auto;
+    color: #ccc;
+    background: #080808;
+    padding: 5px;
+}
+
+/* Transformations */
+.bb-mirror { display: inline-block; transform: scaleX(-1); }
+.bb-flip { display: inline-block; transform: scaleY(-1); }
+.bb-upside { display: inline-block; transform: rotate(180deg); }
+.bb-ghost { opacity: 0.3; }
+.bb-strike { text-decoration: line-through; color: #666; }
+
+/* [box] Container */
+.bb-box {
+    background: #111;
+    border: 1px solid #333;
+    padding: 10px;
+    margin: 5px 0;
+}
+.bb-box-title {
+    background: #222;
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 2px 5px;
+    display: inline-block;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+}
+
+/* --- CHAT INPUT HELPER DRAWER (NO-JS) --- */
+.helper-toggle { display: none; } /* Hide Checkbox */
+
+/* The Drawer Container */
+.helper-drawer {
+    display: none; /* Hidden by default */
+    position: absolute;
+    bottom: 100%; /* Sits on top of the input bar */
+    left: 0;
+    width: 100%;
+    max-height: 250px; /* Max height for scrolling */
+    background: #111;
+    border-top: 2px solid #6a9c6a;
+    box-shadow: 0 -5px 20px rgba(0,0,0,0.8);
+    overflow-y: auto;
+    z-index: 999;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+/* Show Drawer when Checked */
+#helper-toggle:checked ~ .helper-drawer {
+    display: block;
+}
+
+/* Grid for the Codes */
+.code-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+}
+.code-item {
+    background: #080808;
+    border: 1px solid #333;
+    padding: 4px;
+    font-size: 0.65rem;
+    color: #888;
+    cursor: pointer; /* Suggests interactivity */
+    font-family: monospace;
+    text-align: center;
+}
+.code-item:hover {
+    border-color: #6a9c6a;
+    color: #fff;
+}
+.code-desc { display: block; color: #444; font-size: 0.6rem; margin-top: 2px; }
+
+/* The Trigger Button Style */
+.helper-btn {
+    background: #161616;
+    color: #6a9c6a;
+    border: none;
+    border-right: 1px solid #333;
+    padding: 0 15px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.helper-btn:hover { background: #222; color: #fff; }
+
+/* Checkbox State styling for the button */
+#helper-toggle:checked + form .helper-btn {
+    background: #6a9c6a;
+    color: #000;
+}

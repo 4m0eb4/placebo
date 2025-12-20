@@ -1,0 +1,149 @@
+<?php
+session_start();
+require 'db_config.php';
+require 'bbcode.php'; // Load Engine
+
+// Security: Rank 9+ Only
+if (!isset($_SESSION['rank']) || $_SESSION['rank'] < 9) {
+    header("Location: index.php"); exit;
+}
+
+// EDIT MODE logic
+$edit_id = $_GET['edit'] ?? null;
+$title_val = '';
+$body_val = '';
+$rank_val = 1; // Default Public
+$cutoff_val = 250; // Default Cutoff
+$mode_label = 'NEW_POST';
+
+// Load existing post if editing
+if ($edit_id) {
+    $stmt = $pdo->prepare("SELECT * FROM posts WHERE id = ?");
+    $stmt->execute([$edit_id]);
+    $post = $stmt->fetch();
+    if($post) {
+        $title_val = $post['title'];
+        $body_val = $post['body'];
+        $rank_val = $post['min_rank'];
+        $cutoff_val = $post['preview_cutoff'] ?? 250;
+        $mode_label = 'EDIT_POST // ID: ' . $edit_id;
+    }
+}
+
+$msg = '';
+$preview_html = '';
+
+// --- FORM HANDLING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 1. Capture Input
+    $title_val = trim($_POST['title']);
+    $body_val = trim($_POST['body']);
+    
+    // FIX: Force Rank 1 (Public) minimum. 
+    // The previous error was (int)NULL becoming 0, creating an invisible post.
+    $rank_input = (int)($_POST['min_rank'] ?? 1);
+    $rank_val = ($rank_input < 1) ? 1 : $rank_input;
+    
+    $cutoff_val = (int)($_POST['cutoff'] ?? 250);
+    
+    // 2. ACTION: PREVIEW
+    if (isset($_POST['action_preview'])) {
+        if ($title_val && $body_val) {
+            $preview_html = "
+            <div style='border:1px dashed #6a9c6a; padding:15px; margin-bottom:20px; background:#051005;'>
+                <div style='color:#e0e0e0; font-weight:bold; border-bottom:1px solid #333; margin-bottom:10px; font-size:0.9rem;'>
+                    PREVIEW: " . htmlspecialchars($title_val) . "
+                </div>
+                <div style='font-family:monospace; color:#ccc; line-height:1.5; font-size:0.9rem;'>" . parse_bbcode($body_val) . "</div>
+            </div>";
+        } else {
+            $msg = "Title and Body required for preview.";
+        }
+    }
+
+    // 3. ACTION: BROADCAST (SAVE)
+    if (isset($_POST['action_post'])) {
+        if ($title_val && $body_val) {
+            if ($edit_id) {
+                // UPDATE
+                $stmt = $pdo->prepare("UPDATE posts SET title=?, body=?, min_rank=?, preview_cutoff=? WHERE id=?");
+                $stmt->execute([$title_val, $body_val, $rank_val, $cutoff_val, $edit_id]);
+                
+                // Log it (Identity Protected)
+                if(isset($_SESSION['user_id'])) {
+                    $log_ident = "SID:" . substr(session_id(), 0, 6) . "..";
+                    
+                    $pdo->prepare("INSERT INTO security_logs (user_id, username, action, ip_addr) VALUES (?, ?, ?, ?)")
+                        ->execute([$_SESSION['user_id'], $_SESSION['username'], "Edited Post #$edit_id", $log_ident]);
+                }
+            } else {
+                // INSERT
+                $stmt = $pdo->prepare("INSERT INTO posts (user_id, title, body, min_rank, preview_cutoff) VALUES (?, ?, ?, ?, ?)");
+                $stmt->execute([$_SESSION['user_id'], $title_val, $body_val, $rank_val, $cutoff_val]);
+            }
+            header("Location: admin_dash.php?view=posts"); exit;
+        } else {
+            $msg = "Title and Body required.";
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Comms Uplink</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?>>
+<div class="login-wrapper" style="width: 900px;">
+    <div class="terminal-header">
+        <span class="term-title">COMMS_UPLINK // <?= $mode_label ?></span>
+        <a href="admin_dash.php?view=posts" style="color:#666; font-size:0.7rem;">[ ABORT ]</a>
+    </div>
+    
+    <div style="padding: 20px;">
+        <?php if($msg): ?><div class="error"><?= $msg ?></div><?php endif; ?>
+        
+        <?= $preview_html ?>
+        
+        <form method="POST">
+            <div style="display:grid; grid-template-columns: 3fr 1fr; gap: 20px;">
+                <div class="input-group">
+                    <label>HEADER / TITLE</label>
+                    <input type="text" name="title" required value="<?= htmlspecialchars($title_val) ?>" style="background:#0d0d0d;">
+                </div>
+                <div class="input-group">
+                    <label>CLEARANCE LEVEL (MIN RANK)</label>
+                    <select name="min_rank" style="background:#0d0d0d; width:100%; border:1px solid #333; color:#ccc; padding:12px; border-radius:4px;">
+                        <option value="1" <?= $rank_val==1?'selected':'' ?>>Rank 1 (Public)</option>
+                        <option value="5" <?= $rank_val==5?'selected':'' ?>>Rank 5 (Privileged)</option>
+                        <option value="9" <?= $rank_val==9?'selected':'' ?>>Rank 9 (Admin)</option>
+                        <option value="10" <?= $rank_val==10?'selected':'' ?>>Rank 10 (Eyes Only)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="input-group">
+                    <label>PREVIEW CUTOFF (CHARS)</label>
+                    <input type="number" name="cutoff" value="<?= $cutoff_val ?>" style="background:#0d0d0d;" placeholder="250">
+                    <small style="color:#555; font-size:0.6rem;">Characters shown on homepage before "Read More" link.</small>
+                </div>
+                <div class="input-group"></div>
+            </div>
+            
+            <div class="input-group">
+                <label>MESSAGE BODY</label>
+                <?= get_bbcode_menu() ?>
+                <textarea name="body" class="pgp-box" style="height: 400px; background:#0d0d0d; font-size: 0.9rem; font-family:monospace;" required><?= htmlspecialchars($body_val) ?></textarea>
+            </div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 2fr; gap:15px; border-top:1px solid #333; padding-top:20px;">
+                <button type="submit" name="action_preview" class="btn-primary" style="background:#1a1a1a; color:#ccc; border-color:#555;">PREVIEW SIGNAL</button>
+                <button type="submit" name="action_post" class="btn-primary">BROADCAST MESSAGE</button>
+            </div>
+        </form>
+    </div>
+</div>
+</body>
+</html>
