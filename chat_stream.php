@@ -347,11 +347,11 @@ if ($kill_stream) {
                 if ($row_r) render_update($row_r, $my_rank, $emoji_presets);
             }
         }
-
-        // 4. LIVE PM ALERTS (Self-Cleaning Overlay)
+// 4. LIVE PM ALERTS (Bottom Bar Style)
         static $prev_alert_id = null;
         
         if ($heartbeat % 5 === 0) {
+            // Clear previous alert if exists
             if ($prev_alert_id) {
                 echo "<style>#{$prev_alert_id} { display: none !important; }</style>";
                 $prev_alert_id = null;
@@ -365,12 +365,26 @@ if ($kill_stream) {
                 $new_id = "pm_alert_" . time();
                 $prev_alert_id = $new_id;
                 
-                echo "<div id='$new_id' class='stream-alert-box'>
-                        <a href='pm.php' target='_top'>
-                           [ ! ] $unread ENCRYPTED SIGNAL(S)<br>
-                           <span style='font-size:0.7rem; font-weight:normal;'>CLICK TO DECRYPT</span>
-                        </a>
-                      </div>";
+                // EXACT COPY OF "LINK DETAINED" STYLE
+                // Fixed to bottom of stream window
+                echo "
+                <style>
+                    #$new_id {
+                        position: fixed; bottom: 0; left: 0; width: 100%;
+                        background: #1a1005; 
+                        color: #e5c07b; 
+                        border-top: 1px dashed #e5c07b; 
+                        padding: 8px 15px; 
+                        font-family: monospace; font-size: 0.7rem;
+                        display: flex; justify-content: space-between; align-items: center;
+                        z-index: 99999; box-sizing: border-box;
+                    }
+                    #$new_id a { color: inherit; text-decoration: underline; font-weight: bold; cursor: pointer; }
+                </style>
+                <div id='$new_id'>
+                    <span>[INFO] <strong>$unread Encrypted Signal(s)</strong> detected.</span>
+                    <a href='pm.php' target='_blank'>[ DECRYPT ]</a>
+                </div>";
             }
         }
 

@@ -342,9 +342,13 @@ if ($tab === 'logs') {
         .main-panel { padding: 30px; background: #0d0d0d; }
         .panel-header { margin-bottom: 25px; border-bottom: 1px solid #333; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-end; }
         .panel-title { font-size: 1.2rem; color: #d19a66; margin: 0; }
-        .data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        /* FIXED TABLE LAYOUT */
+        .data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; table-layout: fixed; }
         .data-table th { text-align: left; padding: 10px; border-bottom: 1px solid #444; color: #888; }
-        .data-table td { padding: 10px; border-bottom: 1px solid #222; color: #ccc; }
+        .data-table td { 
+            padding: 10px; border-bottom: 1px solid #222; color: #ccc; 
+            word-wrap: break-word; overflow-wrap: break-word; /* Forces long links to wrap */
+        }
         .data-table tr:hover { background: #161616; }
         input[type="number"], input[type="text"], textarea { background: #080808 !important; border-color: #333; }
         .badge { padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; background: #333; }

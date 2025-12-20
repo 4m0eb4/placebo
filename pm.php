@@ -17,13 +17,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['send_msg']) && $target_id) {
         $body = trim($_POST['message']);
         if ($body) {
+            // Auto PGP Wrap
+            if (strpos($body, '-----BEGIN PGP MESSAGE-----') !== false && strpos($body, '[pgp]') === false) {
+                $body = "[pgp]\n" . $body . "\n[/pgp]";
+            }
             $pdo->prepare("INSERT INTO private_messages (sender_id, receiver_id, message) VALUES (?, ?, ?)")->execute([$my_id, $target_id, $body]);
         }
     }
     if (isset($_POST['request_burn']) && $target_id) {
         $req_txt = "[SYSTEM::BURN_REQUEST]";
         $pdo->prepare("INSERT INTO private_messages (sender_id, receiver_id, message) VALUES (?, ?, ?)")->execute([$my_id, $target_id, $req_txt]);
-        $msg = "DESTRUCTION PROPOSAL SENT.";
+        // No message needed, stream shows it
     }
     if (isset($_POST['confirm_burn']) && $target_id) {
         $pdo->prepare("DELETE FROM private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)")->execute([$my_id, $target_id, $target_id, $my_id]);
@@ -40,16 +44,13 @@ if ($target_id) {
     
     if (!$target_user) die("Target Lost.");
 
-    $pdo->prepare("UPDATE private_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ?")->execute([$target_id, $my_id]);
-
-    $stmt_h = $pdo->prepare("SELECT * FROM private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY created_at ASC");
-    $stmt_h->execute([$my_id, $target_id, $target_id, $my_id]);
-    $history = $stmt_h->fetchAll();
-
 } else {
     // INBOX MODE
-    $stmt_inbox = $pdo->prepare("SELECT DISTINCT u.id, u.username, u.rank FROM users u JOIN private_messages pm ON (u.id = pm.sender_id OR u.id = pm.receiver_id) WHERE (pm.receiver_id = ? OR pm.sender_id = ?) AND u.id != ? ORDER BY pm.created_at DESC");
-    $stmt_inbox->execute([$my_id, $my_id, $my_id]);
+    $stmt_inbox = $pdo->prepare("SELECT DISTINCT u.id, u.username, u.rank, 
+        (SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND sender_id = u.id AND is_read = 0) as unread
+        FROM users u JOIN private_messages pm ON (u.id = pm.sender_id OR u.id = pm.receiver_id) 
+        WHERE (pm.receiver_id = ? OR pm.sender_id = ?) AND u.id != ? ORDER BY unread DESC, pm.created_at DESC");
+    $stmt_inbox->execute([$my_id, $my_id, $my_id, $my_id]);
     $contacts = $stmt_inbox->fetchAll();
 }
 ?>
@@ -58,10 +59,9 @@ if ($target_id) {
 <head>
     <title>Secure Comms</title>
     <link rel="stylesheet" href="style.css">
-<style>
+    <style>
         .pm-container { width: 100%; max-width: 800px; margin: 20px auto; }
         .inbox-card { background: #080808; border: 1px solid #222; padding: 15px; margin-bottom: 15px; }
-        .pm-meta { font-size: 0.65rem; color: #6a9c6a; margin-bottom: 8px; border-bottom: 1px solid #111; padding-bottom: 5px; }
         
         /* PGP ACCORDION */
         details.pgp-top { background: #080808; border: 1px solid #333; border-top: none; margin-bottom: 20px; }
@@ -72,6 +72,12 @@ if ($target_id) {
         details.pgp-top summary:hover { color: #6a9c6a; }
         details.pgp-top[open] summary { color: #6a9c6a; border-bottom: 1px solid #333; }
         .pgp-content { padding: 10px; }
+
+        /* BURN BUTTON */
+        .btn-burn-active {
+            background: #220505; color: #e06c75; border: 1px solid #e06c75; 
+            cursor: pointer; animation: pulse 2s infinite; font-size: 0.7rem; padding: 2px 8px;
+        }
     </style>
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="display:block;">
@@ -95,8 +101,20 @@ if ($target_id) {
         <?php if($target_id): ?>
             <div style="padding:15px; border-bottom:1px solid #333; background:#111; display:flex; justify-content:space-between; align-items:center;">
                 <span style="color:#fff; font-weight:bold;">UPLINK: <?= htmlspecialchars($target_user['username']) ?></span>
-                <form method="POST" onsubmit="return confirm('Request Mutual Destruction?');" style="margin:0;">
-                    <button type="submit" name="request_burn" class="badge" style="background:#220505; color:#e06c75; border:1px solid #e06c75; cursor:pointer;">INITIATE WIPE</button>
+                
+                <form method="POST" onsubmit="return confirm('INITIATE DESTRUCTION?');" style="margin:0;">
+                    <?php
+                        // Check if burn requested
+                        $chk = $pdo->prepare("SELECT count(*) FROM private_messages WHERE (sender_id=? OR receiver_id=?) AND message='[SYSTEM::BURN_REQUEST]'");
+                        $chk->execute([$target_id, $target_id]);
+                        $is_burning = $chk->fetchColumn();
+                    ?>
+                    <?php if($is_burning): ?>
+                        <input type="hidden" name="confirm_burn" value="1">
+                        <button type="submit" class="btn-burn-active">⚠ CONFIRM WIPE ⚠</button>
+                    <?php else: ?>
+                        <button type="submit" name="request_burn" class="badge" style="background:#1a0505; color:#666; border:1px solid #333; cursor:pointer;">INITIATE WIPE</button>
+                    <?php endif; ?>
                 </form>
             </div>
 
@@ -107,38 +125,13 @@ if ($target_id) {
                 </div>
             </details>
 
-            <div class="pm-thread" style="flex:1; overflow-y:auto; max-height:600px; padding-top:10px;">
-                <?php if($msg): ?><div class="success" style="text-align:center;"><?= $msg ?></div><?php endif; ?>
-                
-                <?php if(empty($history)): ?>
-                    <div style="text-align:center; color:#444; margin-top:50px;">- CHANNEL SECURE. NO RECORDS FOUND. -</div>
-                <?php endif; ?>
-
-                <?php foreach($history as $m): ?>
-                    <?php if($m['message'] === '[SYSTEM::BURN_REQUEST]'): ?>
-                        <div class="burn-request">
-                            <?php if($m['sender_id'] == $my_id): ?>
-                                <div>WAITING FOR PARTNER APPROVAL TO WIPE...</div>
-                            <?php else: ?>
-                                <div style="margin-bottom:10px;">PARTNER REQUESTED HISTORY DELETION</div>
-                                <form method="POST">
-                                    <button type="submit" name="confirm_burn" class="btn-burn">AGREE & BURN RECORDS</button>
-                                </form>
-                            <?php endif; ?>
-                        </div>
-                    <?php else: ?>
-                        <?php $is_me = ($m['sender_id'] == $my_id); ?>
-                        <div class="pm-msg <?= $is_me ? 'pm-sent' : 'pm-rec' ?>">
-                            <div class="pm-header"><?= $is_me ? 'YOU' : htmlspecialchars($target_user['username']) ?> | <?= date('H:i', strtotime($m['created_at'])) ?></div>
-                            <div style="font-family:monospace; white-space:pre-wrap;"><?= parse_bbcode($m['message']) ?></div>
-                        </div>
-                    <?php endif; ?>
-                <?php endforeach; ?>
+            <div style="flex:1; background:#0d0d0d; position:relative;">
+                <iframe src="pm_stream.php?to=<?= $target_id ?>" style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"></iframe>
             </div>
 
             <div style="padding:20px; border-top:1px solid #333; background:#111;">
-                <form method="POST" style="display:flex; gap:10px;">
-                    <textarea name="message" required style="flex-grow:1; background:#000; color:#fff; border:1px solid #333; padding:10px; font-family:monospace; height:60px;" placeholder="Type secure message..."></textarea>
+                <form method="POST" style="display:flex; gap:10px;" autocomplete="off">
+                    <input type="text" name="message" required autofocus style="flex-grow:1; background:#000; color:#fff; border:1px solid #333; padding:12px; font-family:monospace; outline:none;" placeholder="Type secure message...">
                     <button type="submit" name="send_msg" class="btn-primary" style="width:auto; padding:0 20px;">SEND</button>
                 </form>
             </div>
@@ -151,12 +144,16 @@ if ($target_id) {
                 <?php endif; ?>
 
                 <?php foreach($contacts as $c): ?>
-                    <a href="pm.php?to=<?= $c['id'] ?>" class="inbox-row">
+                    <a href="pm.php?to=<?= $c['id'] ?>" style="display:block; background:#161616; padding:12px; margin-bottom:8px; border:1px solid #333; text-decoration:none; display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <span style="color:#fff; font-weight:bold;"><?= htmlspecialchars($c['username']) ?></span>
                             <span class="badge" style="margin-left:5px;">L<?= $c['rank'] ?></span>
                         </div>
-                        <div style="color:#666; font-size:0.7rem;">[ OPEN CHANNEL ]</div>
+                        <?php if($c['unread'] > 0): ?>
+                            <div style="color:#e06c75; font-weight:bold; font-size:0.7rem;">[ <?= $c['unread'] ?> UNREAD ]</div>
+                        <?php else: ?>
+                            <div style="color:#444; font-size:0.7rem;">[ OPEN ]</div>
+                        <?php endif; ?>
                     </a>
                 <?php endforeach; ?>
             </div>

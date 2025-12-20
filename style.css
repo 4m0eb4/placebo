@@ -896,3 +896,103 @@ pre.bb-pgp {
     padding: 5px 10px; font-size: 0.7rem;
     display: flex; justify-content: space-between;
 }
+/* --- FIXED LAYOUT & NOTIFICATIONS --- */
+
+/* 1. The Slim Info Bar (Matches your "Link Detained" screenshot) */
+.info-bar {
+    background: #1a1005; 
+    color: #e5c07b; 
+    border: 1px dashed #e5c07b; 
+    padding: 5px 10px; 
+    font-size: 0.7rem; 
+    font-family: monospace;
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    margin-bottom: 5px;
+}
+.info-bar a { color: inherit; text-decoration: underline; font-weight: bold; }
+
+/* 2. PM Layout Fixes (Full Height, No Gaps) */
+html, body.pm-mode { height: 100%; overflow: hidden; margin: 0; padding: 0; }
+.pm-layout {
+    display: flex; flex-direction: column; height: 100vh; background: #0d0d0d;
+}
+.pm-header {
+    flex: 0 0 50px; background: #161616; border-bottom: 1px solid #333;
+    display: flex; justify-content: space-between; align-items: center; padding: 0 15px;
+}
+.pm-stream-frame {
+    flex: 1; position: relative; width: 100%; border: none; background: #000;
+}
+.pm-footer {
+    flex: 0 0 auto; background: #111; border-top: 1px solid #333; padding: 10px;
+}
+
+/* 3. System Messages in Stream (Standardized) */
+.sys-msg-std {
+    color: #666; font-style: italic; font-size: 0.7rem; 
+    text-align: center; margin: 10px 0; border-top: 1px solid #222; border-bottom: 1px solid #222; padding: 5px;
+}
+/* --- THEME-AWARE NOTIFICATIONS (Solid, Customizable) --- */
+
+:root {
+    /* Default (System Red) */
+    --alert-bg: #1a0505;
+    --alert-text: #e06c75;
+    --alert-border: #e06c75;
+}
+
+/* THEME OVERRIDES */
+body.theme-christmas {
+    --alert-bg: #051a05;   /* Dark Pine */
+    --alert-text: #ff4444; /* Santa Red */
+    --alert-border: #ffffff; /* Snow */
+}
+
+body.theme-spooky {
+    --alert-bg: #1a051a;   /* Deep Purple */
+    --alert-text: #ff9900; /* Pumpkin */
+    --alert-border: #9933ff; /* Witch Purple */
+}
+
+body.theme-matrix {
+    --alert-bg: #001100;
+    --alert-text: #00ff00;
+    --alert-border: #008800;
+}
+
+/* THE NOTIFICATION BAR (Shared Style) */
+.info-bar, .stream-alert-box {
+    background: var(--alert-bg) !important;
+    color: var(--alert-text) !important;
+    border: 1px dashed var(--alert-border) !important;
+    padding: 6px 12px;
+    font-family: monospace;
+    font-size: 0.7rem;
+    font-weight: bold;
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    /* NO ANIMATION (Solid) */
+}
+
+.info-bar a, .stream-alert-box a {
+    color: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Specific Positioning for the Stream Alert (Floating at bottom) */
+.stream-alert-box {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    z-index: 99999;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    box-sizing: border-box;
+}

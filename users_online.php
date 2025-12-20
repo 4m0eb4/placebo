@@ -165,11 +165,10 @@ try {
 <body>
 
     <div class="list-container">
-        
-        <div class="section-head">
+<div class="section-head">
             <span>NODES (<?= count($display_users) ?>)</span>
             <div>
-                <a href="pm.php" target="_top" class="inbox-link <?= $unread_count > 0 ? 'inbox-unread' : 'inbox-read' ?>">
+                <a href="pm.php" target="_blank" class="inbox-link <?= $unread_count > 0 ? 'inbox-unread' : 'inbox-read' ?>">
                     [ INBOX<?= $unread_count > 0 ? ":$unread_count" : '' ?> ]
                 </a>
                 <a href="users_online.php" class="refresh-link">[ REFRESH ]</a>

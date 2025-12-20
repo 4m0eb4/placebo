@@ -124,10 +124,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch(Exception $e){}
     ?>
 
-    <?php if($pm_count > 0): ?>
-        <div class="input-pm-alert">
-            <span><strong>⚠ INCOMING:</strong> You have <?= $pm_count ?> unread secure message(s).</span>
-            <a href="pm.php" target="_top" style="color:inherit; text-decoration:underline;">[ VIEW ]</a>
+<?php if($pm_count > 0): ?>
+        <div class="info-bar" style="background: #1a0505; color: #e06c75; border: 1px solid #e06c75; border-bottom: none;">
+            <span><strong>ENCRYPTED SIGNAL:</strong> <?= $pm_count ?> Unread Message(s)</span>
+            <a href="pm.php" target="_blank" style="color: inherit; text-decoration: underline; font-weight:bold;">[ DECRYPT ]</a>
         </div>
     <?php endif; ?>
     <?php
