@@ -2,8 +2,9 @@
 session_start();
 require 'db_config.php';
 
-// --- SECURITY: STRICT OWNER CHECK (RANK 10) ---
-if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['rank']) || (int)$_SESSION['rank'] !== 10) {
+// --- SECURITY: ADMIN CHECK (RANK 9+) ---
+// Rank 9 = General Admin | Rank 10 = Owner (Config/Logs)
+if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['rank']) || (int)$_SESSION['rank'] < 9) {
     ?>
     <!DOCTYPE html>
     <html><head><title>Restricted</title><link rel="stylesheet" href="style.css"></head>
@@ -12,7 +13,7 @@ if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['rank']) || (in
         <div class="terminal-header"><span class="term-title">SYSTEM_ALERT</span></div>
         <div style="padding:40px; text-align:center;">
             <h1 style="color:#e06c75; font-size:1.5rem; margin-top:0;">ACCESS DENIED</h1>
-            <p style="color:#666; font-family:monospace; margin-bottom:30px;">OWNER CLEARANCE REQUIRED.<br>INCIDENT LOGGED.</p>
+            <p style="color:#666; font-family:monospace; margin-bottom:30px;">ADMIN CLEARANCE (RANK 9+) REQUIRED.<br>INCIDENT LOGGED.</p>
             <a href="index.php" class="btn-primary" style="display:inline-block; width:auto; text-decoration:none;">RETURN TO FEED</a>
         </div>
     </div>
@@ -45,83 +46,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = "System Alert Broadcasted.";
     }
 
-    // 1. SAVE CONFIG
+    // 1. SAVE CONFIG (STRICT OWNER ONLY)
     if ($tab === 'config') {
-        // --- HANDLE BACKGROUND ---
-        $bg_path = $_POST['saved_bg_url'] ?? ''; 
+        if ($_SESSION['rank'] < 10) {
+            $msg = "ACCESS DENIED: LEVEL 10 REQUIRED FOR CONFIGURATION.";
+        } else {
+            // --- HANDLE BACKGROUND ---
+            $bg_path = $_POST['saved_bg_url'] ?? ''; 
         
-        if (isset($_POST['remove_bg'])) {
-            $bg_path = ''; 
-        }
-
-        if (isset($_FILES['bg_upload']) && $_FILES['bg_upload']['error'] === UPLOAD_ERR_OK) {
-            $tmp = $_FILES['bg_upload']['tmp_name'];
-            if (class_exists('finfo')) {
-                $finfo = new finfo(FILEINFO_MIME_TYPE);
-                $mime = $finfo->file($tmp);
-            } else {
-                $mime = $_FILES['bg_upload']['type'];
+            if (isset($_POST['remove_bg'])) {
+                $bg_path = ''; 
             }
-            $allowed_mimes = ['image/jpeg'=>'jpg', 'image/png'=>'png', 'image/gif'=>'gif', 'image/webp'=>'webp'];
 
-            if (array_key_exists($mime, $allowed_mimes)) {
-                $ext = $allowed_mimes[$mime];
-                $upload_dir = __DIR__ . '/uploads/';
-                if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
-                
-                $new_filename = 'bg_' . bin2hex(random_bytes(8)) . '.' . $ext;
-                $target_file = $upload_dir . $new_filename;
-                
-                if (move_uploaded_file($tmp, $target_file)) {
-                    $bg_path = "uploads/" . $new_filename;
+            if (isset($_FILES['bg_upload']) && $_FILES['bg_upload']['error'] === UPLOAD_ERR_OK) {
+                $tmp = $_FILES['bg_upload']['tmp_name'];
+                if (class_exists('finfo')) {
+                    $finfo = new finfo(FILEINFO_MIME_TYPE);
+                    $mime = $finfo->file($tmp);
                 } else {
-                    $msg = "Error: File move failed.";
+                    $mime = $_FILES['bg_upload']['type'];
                 }
-            } else {
-                $msg = "Error: Invalid Image Type ($mime).";
+                $allowed_mimes = ['image/jpeg'=>'jpg', 'image/png'=>'png', 'image/gif'=>'gif', 'image/webp'=>'webp'];
+
+                if (array_key_exists($mime, $allowed_mimes)) {
+                    $ext = $allowed_mimes[$mime];
+                    $upload_dir = __DIR__ . '/uploads/';
+                    if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+                    
+                    $new_filename = 'bg_' . bin2hex(random_bytes(8)) . '.' . $ext;
+                    $target_file = $upload_dir . $new_filename;
+                    
+                    if (move_uploaded_file($tmp, $target_file)) {
+                        $bg_path = "uploads/" . $new_filename;
+                    } else {
+                        $msg = "Error: File move failed.";
+                    }
+                } else {
+                    $msg = "Error: Invalid Image Type ($mime).";
+                }
             }
+
+            $upd = [
+                'captcha_grid_w' => $_POST['grid_w'],
+                'captcha_grid_h' => $_POST['grid_h'],
+                'captcha_cell_size' => $_POST['cell_size'],
+                'captcha_min_sum' => $_POST['min_sum'],
+                'captcha_max_sum' => $_POST['max_sum'],
+                'captcha_active_min' => $_POST['active_min'],
+                'captcha_active_max' => $_POST['active_max'],
+                'pgp_message' => $_POST['pgp_msg'],
+                'login_message' => $_POST['login_msg'],
+                'chat_emoji_presets' => $_POST['emoji_presets'],
+                'palette_json' => $_POST['palette'],
+                'site_theme' => $_POST['site_theme'],
+                'site_bg_url' => $bg_path,
+                'invite_min_rank' => $_POST['invite_min_rank'] ?? 5,
+                'registration_enabled' => isset($_POST['reg_enabled']) ? '1' : '0',
+                'registration_msg' => $_POST['reg_msg']
+            ];
+
+            foreach($upd as $k=>$v) {
+                $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+                $stmt->execute([$k, $v, $v]);
+            }
+            $msg = $msg ?: "Configuration Saved.";
+            
+            // Log Action (Session + FP, NO IP)
+            $fp_log = "FP:NONE";
+            try {
+                $stmt_fp = $pdo->prepare("SELECT pgp_fingerprint FROM users WHERE id = ?");
+                $stmt_fp->execute([$_SESSION['user_id']]);
+                $fp_full = $stmt_fp->fetchColumn();
+                if ($fp_full) $fp_log = "FP:" . substr(str_replace(' ','',$fp_full), -4); 
+            } catch (Exception $e) {}
+            
+            $log_ident = "SID:" . substr(session_id(), 0, 6) . ".." . " | " . $fp_log;
+
+            $pdo->prepare("INSERT INTO security_logs (user_id, username, action, ip_addr) VALUES (?, ?, ?, ?)")
+                ->execute([$_SESSION['user_id'], $_SESSION['username'], "Updated Settings", $log_ident]);
         }
-
-        $upd = [
-            'captcha_grid_w' => $_POST['grid_w'],
-            'captcha_grid_h' => $_POST['grid_h'],
-            'captcha_cell_size' => $_POST['cell_size'],
-            'captcha_min_sum' => $_POST['min_sum'],
-            'captcha_max_sum' => $_POST['max_sum'],
-            'captcha_active_min' => $_POST['active_min'],
-            'captcha_active_max' => $_POST['active_max'],
-            'pgp_message' => $_POST['pgp_msg'],
-            'login_message' => $_POST['login_msg'],
-            'chat_emoji_presets' => $_POST['emoji_presets'],
-            'palette_json' => $_POST['palette'],
-            'site_theme' => $_POST['site_theme'],
-            'site_bg_url' => $bg_path,
-            // --- NEW REGISTRATION CONTROLS ---
-            'invite_min_rank' => $_POST['invite_min_rank'] ?? 5,
-            'registration_enabled' => isset($_POST['reg_enabled']) ? '1' : '0',
-            'registration_msg' => $_POST['reg_msg']
-        ];
-
-        foreach($upd as $k=>$v) {
-            $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-            $stmt->execute([$k, $v, $v]);
-        }
-        $msg = $msg ?: "Configuration Saved.";
-        
-        // Log Action
-// Log Action (Session + FP, NO IP)
-        $fp_log = "FP:NONE";
-        try {
-            $stmt_fp = $pdo->prepare("SELECT pgp_fingerprint FROM users WHERE id = ?");
-            $stmt_fp->execute([$_SESSION['user_id']]);
-            $fp_full = $stmt_fp->fetchColumn();
-            if ($fp_full) $fp_log = "FP:" . substr(str_replace(' ','',$fp_full), -4); 
-        } catch (Exception $e) {}
-        
-        $log_ident = "SID:" . substr(session_id(), 0, 6) . ".." . " | " . $fp_log;
-
-        $pdo->prepare("INSERT INTO security_logs (user_id, username, action, ip_addr) VALUES (?, ?, ?, ?)")
-            ->execute([$_SESSION['user_id'], $_SESSION['username'], "Updated Settings", $log_ident]);
     }
     
     // 2. USER ACTIONS
@@ -200,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-// 6. LINK ACTIONS
+    // 6. LINK ACTIONS
     if ($tab === 'links') {
         // MANUAL ADD
         if (isset($_POST['manual_add_link'])) {
@@ -224,11 +227,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Link Deleted.";
         }
 
-        // APPROVE (With Title & Admin Note Support)
+        // APPROVE
         if (isset($_POST['approve_link'])) {
             $lid = $_POST['link_id'];
             $title_val = trim($_POST['link_title']);
-            $app_msg = trim($_POST['approval_msg'] ?? ''); // Fetch Admin Note
+            $app_msg = trim($_POST['approval_msg'] ?? ''); 
             
             // 1. Mark Approved
             $stmt = $pdo->prepare("UPDATE shared_links SET status = 'approved', title = ? WHERE id = ?");
@@ -240,14 +243,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $link_row = $stmt_l->fetch();
             
             if ($link_row && !empty($link_row['original_message'])) {
-                // User Lookup
                 $u_stmt = $pdo->prepare("SELECT id, rank, chat_color FROM users WHERE username = ?");
                 $u_stmt->execute([$link_row['posted_by']]);
                 $u_row = $u_stmt->fetch();
                 
                 $final_msg = $link_row['original_message'];
-                
-                // Append Admin Note if exists
                 if (!empty($app_msg)) {
                     $final_msg .= "\n\n[quote=SYSTEM][color=#6a9c6a]APPROVED:[/color] " . htmlspecialchars($app_msg) . "[/quote]";
                 }
@@ -257,12 +257,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $msg = "Link Approved.";
         }
+        
+        // BAN
         if (isset($_POST['ban_link'])) {
-            // 1. Mark Banned
             $stmt = $pdo->prepare("UPDATE shared_links SET status = 'banned' WHERE id = ?");
             $stmt->execute([$_POST['link_id']]);
             
-            // 2. Add to Automod (Auto-Ban Domain)
             $url_val = $_POST['url_val'] ?? '';
             $parsed = parse_url($url_val);
             $domain = $parsed['host'] ?? $url_val;
@@ -276,7 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-// 7. AUTOMOD ACTIONS
+    // 7. AUTOMOD ACTIONS
     if ($tab === 'automod') {
         // A. Username Blacklist
         if (isset($_POST['save_name_blacklist'])) {
@@ -300,18 +300,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Pattern Removed.";
         }
     }
-} // <--- THIS WAS MISSING (Closes REQUEST_METHOD POST)
-
+}
 // --- DATA FETCHING ---
 $settings = [];
 $stmt = $pdo->query("SELECT * FROM settings");
 while($row = $stmt->fetch()) $settings[$row['setting_key']] = $row['setting_value'];
 
-
-// --- DATA FETCHING ---
-$settings = [];
-$stmt = $pdo->query("SELECT * FROM settings");
-while($row = $stmt->fetch()) $settings[$row['setting_key']] = $row['setting_value'];
 
 $rank_names = json_decode($settings['rank_config'] ?? '', true) ?? [1 => 'User', 5 => 'VIP', 9 => 'Admin'];
 
@@ -581,7 +575,14 @@ if ($tab === 'logs') {
         <?php endif; ?>
 
 <?php if($tab === 'links'): ?>
-    <?php $cats = $pdo->query("SELECT * FROM link_categories ORDER BY display_order ASC")->fetchAll(); ?>
+    <?php 
+        $cats = [];
+        try {
+            $cats = $pdo->query("SELECT * FROM link_categories ORDER BY display_order ASC")->fetchAll(); 
+        } catch(Exception $e) {
+            echo "<div class='error'>Warning: Link Categories table missing. Run 'db_fix_links.php'</div>";
+        }
+    ?>
     
     <div style="margin-bottom:30px; border:1px solid #333; padding:15px; background:#111;">
         <h3 style="margin-top:0; color:#6a9c6a; font-size:0.9rem;">+ MANUAL LINK INJECTION</h3>

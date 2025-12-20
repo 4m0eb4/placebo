@@ -10,30 +10,7 @@ if (!isset($_SESSION['fully_authenticated']) || isset($_SESSION['is_guest'])) {
 
 $my_id = $_SESSION['user_id'];
 $target_id = isset($_GET['to']) ? (int)$_GET['to'] : 0;
-$msg = "";
-
-// --- ACTION HANDLERS ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['send_msg']) && $target_id) {
-        $body = trim($_POST['message']);
-        if ($body) {
-            // Auto PGP Wrap
-            if (strpos($body, '-----BEGIN PGP MESSAGE-----') !== false && strpos($body, '[pgp]') === false) {
-                $body = "[pgp]\n" . $body . "\n[/pgp]";
-            }
-            $pdo->prepare("INSERT INTO private_messages (sender_id, receiver_id, message) VALUES (?, ?, ?)")->execute([$my_id, $target_id, $body]);
-        }
-    }
-    if (isset($_POST['request_burn']) && $target_id) {
-        $req_txt = "[SYSTEM::BURN_REQUEST]";
-        $pdo->prepare("INSERT INTO private_messages (sender_id, receiver_id, message) VALUES (?, ?, ?)")->execute([$my_id, $target_id, $req_txt]);
-        // No message needed, stream shows it
-    }
-    if (isset($_POST['confirm_burn']) && $target_id) {
-        $pdo->prepare("DELETE FROM private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)")->execute([$my_id, $target_id, $target_id, $my_id]);
-        $msg = "HISTORY ERASED.";
-    }
-}
+// Input logic moved to pm_input.php to prevent jarring refreshes
 
 // --- VIEW LOGIC ---
 if ($target_id) {
@@ -60,7 +37,7 @@ if ($target_id) {
     <title>Secure Comms</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .pm-container { width: 100%; max-width: 800px; margin: 20px auto; }
+        .pm-container { width: 100%; max-width: 1200px; margin: 20px auto; } /* Widened to 1200px */
         .inbox-card { background: #080808; border: 1px solid #222; padding: 15px; margin-bottom: 15px; }
         
         /* PGP ACCORDION */
@@ -82,8 +59,8 @@ if ($target_id) {
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="display:block;">
 
-<div class="main-container" style="width: 800px; margin: 0 auto;">
-    <div class="nav-bar" style="background: #161616; border-bottom: 1px solid #333; padding: 15px 20px;">
+<div class="main-container" style="width: 95%; max-width: 1200px; margin: 0 auto;">
+    <div class="nav-bar" style="background: #161616; border-bottom: 1px solid #333; padding: 15px 20px; display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap: 20px;">
             <a href="index.php" class="term-logo">Placebo</a>
             <span style="color:#444; font-size:0.75rem; font-family:monospace;">// Secure_Comms</span>
@@ -91,6 +68,8 @@ if ($target_id) {
         <div style="font-size:0.75rem; font-family:monospace;">
             <?php if($target_id): ?>
                 <a href="pm.php" style="color:#e5c07b; margin-right:15px; text-decoration:none;">&lt; INBOX</a>
+            <?php else: ?>
+                <a href="pm.php" style="color:#6a9c6a; margin-right:15px; text-decoration:none;">[ REFRESH ]</a>
             <?php endif; ?>
             <a href="chat.php" style="color:#888; text-decoration:none;">[ CHAT ]</a>
         </div>
@@ -101,39 +80,22 @@ if ($target_id) {
         <?php if($target_id): ?>
             <div style="padding:15px; border-bottom:1px solid #333; background:#111; display:flex; justify-content:space-between; align-items:center;">
                 <span style="color:#fff; font-weight:bold;">UPLINK: <?= htmlspecialchars($target_user['username']) ?></span>
-                
-                <form method="POST" onsubmit="return confirm('INITIATE DESTRUCTION?');" style="margin:0;">
-                    <?php
-                        // Check if burn requested
-                        $chk = $pdo->prepare("SELECT count(*) FROM private_messages WHERE (sender_id=? OR receiver_id=?) AND message='[SYSTEM::BURN_REQUEST]'");
-                        $chk->execute([$target_id, $target_id]);
-                        $is_burning = $chk->fetchColumn();
-                    ?>
-                    <?php if($is_burning): ?>
-                        <input type="hidden" name="confirm_burn" value="1">
-                        <button type="submit" class="btn-burn-active">⚠ CONFIRM WIPE ⚠</button>
-                    <?php else: ?>
-                        <button type="submit" name="request_burn" class="badge" style="background:#1a0505; color:#666; border:1px solid #333; cursor:pointer;">INITIATE WIPE</button>
-                    <?php endif; ?>
-                </form>
+                <span style="color:#444; font-size:0.7rem; font-family:monospace;">SECURE_V2 // NO_JS</span>
             </div>
 
             <details class="pgp-top">
                 <summary>[ VIEW TARGET PGP IDENTITY ]</summary>
                 <div class="pgp-content">
-                     <textarea readonly class="pgp-box" style="height:120px; width:100%; border:none;"><?= htmlspecialchars($target_user['pgp_public_key']) ?></textarea>
+                     <textarea readonly class="pgp-box" style="height:120px; width:100%; box-sizing:border-box; background:#050505; color:#444; border:1px solid #222; font-family:monospace; padding:10px; display:block;"><?= htmlspecialchars($target_user['pgp_public_key']) ?></textarea>
                 </div>
             </details>
 
-            <div style="flex:1; background:#0d0d0d; position:relative;">
+            <div style="flex:1; background:#0d0d0d; position:relative; min-height:0;">
                 <iframe src="pm_stream.php?to=<?= $target_id ?>" style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"></iframe>
             </div>
 
-            <div style="padding:20px; border-top:1px solid #333; background:#111;">
-                <form method="POST" style="display:flex; gap:10px;" autocomplete="off">
-                    <input type="text" name="message" required autofocus style="flex-grow:1; background:#000; color:#fff; border:1px solid #333; padding:12px; font-family:monospace; outline:none;" placeholder="Type secure message...">
-                    <button type="submit" name="send_msg" class="btn-primary" style="width:auto; padding:0 20px;">SEND</button>
-                </form>
+            <div style="height:110px; border-top:1px solid #333; background:#111; flex-shrink:0;">
+                <iframe src="pm_input.php?to=<?= $target_id ?>" style="width:100%; height:100%; border:none; display:block;"></iframe>
             </div>
 
         <?php else: ?>

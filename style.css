@@ -1,4 +1,6 @@
 /* GLOBAL RESET & FONTS */
+* { box-sizing: border-box; } /* FIX: Prevents elements from sticking out due to padding */
+
 :root {
     /* --- CORE THEME VARIABLES --- */
     --bg-color: #0d0d0d;
@@ -20,16 +22,16 @@ body {
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
-    /* Blend mode helps text pop against busy images */
     background-blend-mode: overlay; 
     
     color: var(--text-main);
     font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
     margin: 0;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    
+    /* FIXED: Block display allows content to flow and scroll naturally */
+    display: block; 
     min-height: 100vh;
+    overflow-y: auto; 
 }
 
 a { text-decoration: none; color: #5a8a8a; }
@@ -47,6 +49,9 @@ a:hover { color: #7aaiai; }
     box-shadow: 0 10px 30px rgba(0,0,0,0.8);
     position: relative;
     padding-bottom: 20px;
+    
+    /* FIXED: Manually center the login box now that body is display:block */
+    margin: 10vh auto; 
 }
 
 .terminal-header {
@@ -914,9 +919,10 @@ pre.bb-pgp {
 .info-bar a { color: inherit; text-decoration: underline; font-weight: bold; }
 
 /* 2. PM Layout Fixes (Full Height, No Gaps) */
-html, body.pm-mode { height: 100%; overflow: hidden; margin: 0; padding: 0; }
+/* FIXED: Changed overflow:hidden to auto to allow scrolling */
+html, body.pm-mode { height: 100%; overflow-y: auto; margin: 0; padding: 0; }
 .pm-layout {
-    display: flex; flex-direction: column; height: 100vh; background: #0d0d0d;
+    display: flex; flex-direction: column; min-height: 100vh; background: #0d0d0d;
 }
 .pm-header {
     flex: 0 0 50px; background: #161616; border-bottom: 1px solid #333;

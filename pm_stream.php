@@ -65,16 +65,25 @@ function render_pm($row, $my_id, $target_name) {
     <link rel="stylesheet" href="style.css">
     <style>
         /* Force transparent so it blends into the parent container */
-        html, body { background: transparent !important; margin: 0; padding: 0; height: 100%; overflow: hidden; }
+        html { height: 100%; }
+        body { 
+            background: transparent !important; 
+            margin: 0; padding: 0; 
+            min-height: 100%; 
+            overflow-y: scroll; /* Force scrollbar */
+        }
         
-        /* Scroll container */
+        /* Scroll container - REVERSED for Newest at Top */
         .stream-wrapper { 
-            height: auto; min-height: 100%; 
-            padding: 10px; 
-            display: flex; flex-direction: column; justify-content: flex-end; 
+            min-height: 100%; 
+            /* FIXED: Extra padding to ensure top/bottom messages aren't cut off */
+            padding: 50px 20px; 
+            display: flex; 
+            flex-direction: column-reverse; 
+            justify-content: flex-end;      
         }
 
-        /* Message Styling from your original PM.php */
+        /* Message Styling */
         .pm-msg { margin-bottom: 10px; padding: 10px; border: 1px solid #222; max-width: 80%; }
         .pm-sent { background: #111; margin-left: auto; border-color: #333; }
         .pm-rec { background: #0a150a; margin-right: auto; border-color: #1f2f1f; color: #88cc88; }
@@ -99,8 +108,7 @@ function render_pm($row, $my_id, $target_name) {
     // Mark Read
     $pdo->prepare("UPDATE private_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ?")->execute([$target_id, $my_id]);
     
-    echo '<div id="anchor"></div>';
-    echo '<script>window.scrollTo(0, document.body.scrollHeight);</script>';
+    // No JS Scroll needed. Column-reverse puts the focus at the top naturally.
     flush();
 
     // 2. Stream Loop

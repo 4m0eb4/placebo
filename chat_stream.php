@@ -164,10 +164,15 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
 <head>
     <link rel="stylesheet" href="style.css">
     <style>
-        html, body { height: 100%; margin: 0; padding: 0; }
+        /* FIXED: Allow body to expand beyond 100% for scrolling */
+        html { height: 100%; margin: 0; padding: 0; }
         body { 
-            background: transparent; padding: 20px; overflow-y: scroll; 
-            font-family: monospace; display: flex; flex-direction: column-reverse; 
+            min-height: 100%; height: auto; margin: 0; padding: 20px;
+            background: transparent; 
+            overflow-y: auto; /* Enable native scrollbar */
+            font-family: monospace; 
+            display: flex; 
+            flex-direction: column-reverse; /* Newest at top */
             justify-content: flex-end;      
         }
         body { font-size: 0.75rem; } /* Global Size Reduction */
@@ -350,7 +355,7 @@ if ($kill_stream) {
 // 4. LIVE PM ALERTS (Bottom Bar Style)
         static $prev_alert_id = null;
         
-        if ($heartbeat % 5 === 0) {
+if ($heartbeat % 5 === 0) {
             // Clear previous alert if exists
             if ($prev_alert_id) {
                 echo "<style>#{$prev_alert_id} { display: none !important; }</style>";
@@ -361,19 +366,18 @@ if ($kill_stream) {
             $chk_pm->execute([$_SESSION['user_id']]);
             $unread = $chk_pm->fetchColumn();
 
+            // 1. PM ALERT (THEMED & STATIC)
             if ($unread > 0) {
                 $new_id = "pm_alert_" . time();
                 $prev_alert_id = $new_id;
                 
-                // EXACT COPY OF "LINK DETAINED" STYLE
-                // Fixed to bottom of stream window
                 echo "
                 <style>
                     #$new_id {
                         position: fixed; bottom: 0; left: 0; width: 100%;
-                        background: #1a1005; 
-                        color: #e5c07b; 
-                        border-top: 1px dashed #e5c07b; 
+                        background: var(--alert-bg, #1a1005); 
+                        color: var(--alert-text, #e5c07b); 
+                        border-top: 1px dashed var(--alert-border, #e5c07b); 
                         padding: 8px 15px; 
                         font-family: monospace; font-size: 0.7rem;
                         display: flex; justify-content: space-between; align-items: center;
@@ -385,6 +389,34 @@ if ($kill_stream) {
                     <span>[INFO] <strong>$unread Encrypted Signal(s)</strong> detected.</span>
                     <a href='pm.php' target='_blank'>[ DECRYPT ]</a>
                 </div>";
+            }
+
+            // 2. LINK ALERT (ADMINS ONLY)
+            if ($my_rank >= 9) {
+                $chk_link = $pdo->query("SELECT COUNT(*) FROM shared_links WHERE status='pending'")->fetchColumn();
+                if ($chk_link > 0) {
+                    $link_id = "lnk_alert_" . time();
+                    // Offset by 35px if PM alert is present, else 0
+                    $offset = ($unread > 0) ? "35px" : "0";
+                    
+                    echo "
+                    <style>
+                        #$link_id {
+                            position: fixed; bottom: $offset; left: 0; width: 100%;
+                            background: var(--panel-bg, #111); 
+                            color: var(--accent-primary, #6a9c6a); 
+                            border-top: 1px dashed var(--accent-primary, #6a9c6a); 
+                            padding: 8px 15px; 
+                            font-family: monospace; font-size: 0.7rem;
+                            display: flex; justify-content: space-between; align-items: center;
+                            z-index: 99998; box-sizing: border-box;
+                        }
+                    </style>
+                    <div id='$link_id'>
+                        <span>[SIGNAL] <strong>$chk_link Pending Link(s)</strong> waiting.</span>
+                        <a href='admin_dash.php?view=links' target='_top' style='color:inherit; font-weight:bold; text-decoration:none;'>[ REVIEW ]</a>
+                    </div>";
+                }
             }
         }
 
