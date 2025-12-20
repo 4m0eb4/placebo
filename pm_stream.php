@@ -52,9 +52,20 @@ function render_pm($row, $my_id, $target_name) {
 
     $body = parse_bbcode($row['message']);
     
+    // Action Buttons
+    $actions = "";
+    if ($is_me) {
+        $target_param = $_GET['to'] ?? 0;
+        $del_link = "pm_input.php?action=delete&msg_id={$row['id']}&to={$target_param}";
+        $actions = "<a href='$del_link' target='pm_input' style='color:#444; text-decoration:none; margin-left:10px; font-weight:bold;' title='Delete'>[x]</a>";
+    }
+
     // MATCHING YOUR ORIGINAL STYLE STRUCTURE
     echo "<div id='$dom_id' class='pm-msg $cls'>
-            <div class='pm-header'>$header_name | $time</div>
+            <div class='pm-header'>
+                <span>$header_name | $time</span>
+                <span>$actions</span>
+            </div>
             <div style='font-family:monospace; white-space:pre-wrap;'>$body</div>
           </div>";
 }
@@ -87,8 +98,11 @@ function render_pm($row, $my_id, $target_name) {
         .pm-msg { margin-bottom: 10px; padding: 10px; border: 1px solid #222; max-width: 80%; }
         .pm-sent { background: #111; margin-left: auto; border-color: #333; }
         .pm-rec { background: #0a150a; margin-right: auto; border-color: #1f2f1f; color: #88cc88; }
-        .pm-header { font-size: 0.65rem; color: #666; margin-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 3px; }
-        
+        .pm-header { 
+            font-size: 0.65rem; color: #666; margin-bottom: 5px; 
+            border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 3px; 
+            display: flex; justify-content: space-between;
+        }
         @keyframes pulse-red { 0% { opacity:1; } 50% { opacity:0.7; } 100% { opacity:1; } }
     </style>
 </head>

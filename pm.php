@@ -94,7 +94,7 @@ if ($target_id) {
                 <iframe src="pm_stream.php?to=<?= $target_id ?>" style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"></iframe>
             </div>
 
-            <div style="height:110px; border-top:1px solid #333; background:#111; flex-shrink:0;">
+            <div style="height:105px; border-top:1px solid #333; background:#111; flex-shrink:0;">
                 <iframe src="pm_input.php?to=<?= $target_id ?>" style="width:100%; height:100%; border:none; display:block;"></iframe>
             </div>
 

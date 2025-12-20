@@ -51,23 +51,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         body { 
             display: flex !important; 
             flex-direction: column !important;
-            justify-content: center !important;
-            background: #161616; 
-            padding: 20px; 
+            justify-content: flex-start !important; /* Start at top */
+            background: transparent; 
+            padding: 10px; 
             text-align: center; 
-            height: 100vh !important; 
+            height: auto !important; /* Fit content */
             box-sizing: border-box;
             font-family: monospace;
+            overflow: hidden;
         }
         .token-box { 
             background: #000; border: 1px dashed #6a9c6a; 
-            color: #6a9c6a; padding: 15px; font-size: 1.8rem; 
-            margin: 15px 0; letter-spacing: 4px; user-select: all;
+            color: #6a9c6a; padding: 10px; font-size: 1.4rem; 
+            margin: 10px 0; letter-spacing: 2px; user-select: all;
+            word-break: break-all;
         }
         input[type="number"] { 
             background: #000; color: #fff; border: 1px solid #333; 
-            padding: 8px; width: 60px; text-align: center; outline: none;
+            padding: 5px; width: 50px; text-align: center; outline: none;
+            font-family: monospace; font-size: 0.8rem;
         }
+        p { margin: 5px 0 10px 0; }
+        .btn-primary { padding: 8px 15px !important; font-size: 0.7rem !important; }
     </style>
 </head>
 <body>

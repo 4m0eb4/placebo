@@ -328,25 +328,33 @@ if ($tab === 'logs') {
     <title>Admin Control</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        body.admin-mode { display: block !important; margin: 0 !important; }
+        body.admin-mode { display: block !important; margin: 0 !important; background: #0d0d0d; } /* Ensure body bg matches panel */
         .admin-layout { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
-        .sidebar { background: #161616; border-right: 1px solid #333; padding-top: 10px; }
-        .sidebar a { display: block; padding: 10px 15px; color: #888; border-bottom: 1px solid #222; font-size: 0.75rem; letter-spacing: 1px; }
+        /* Ensure sidebar tracks full height */
+        .sidebar { background: #161616; border-right: 1px solid #333; padding-top: 10px; height: 100%; min-height: 100vh; box-sizing: border-box; }
+        .sidebar a { display: block; padding: 12px 15px; color: #888; border-bottom: 1px solid #222; font-size: 0.7rem; letter-spacing: 1px; text-decoration: none; }
         .sidebar a:hover, .sidebar a.active { background: #1f1f1f; color: #fff; border-left: 3px solid #6a9c6a; }
-        .main-panel { padding: 30px; background: #0d0d0d; }
+        .main-panel { padding: 30px; background: #0d0d0d; min-width: 0; /* Prevents grid blowout */ }
         .panel-header { margin-bottom: 25px; border-bottom: 1px solid #333; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-end; }
-        .panel-title { font-size: 1.2rem; color: #d19a66; margin: 0; }
-        /* FIXED TABLE LAYOUT */
-        .data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; table-layout: fixed; }
-        .data-table th { text-align: left; padding: 10px; border-bottom: 1px solid #444; color: #888; }
+        .panel-title { font-size: 1.1rem; color: #d19a66; margin: 0; }
+        
+        /* IMPROVED TABLE LAYOUT */
+        .data-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; table-layout: fixed; }
+        .data-table th { text-align: left; padding: 8px; border-bottom: 1px solid #444; color: #6a9c6a; font-size: 0.7rem; }
         .data-table td { 
-            padding: 10px; border-bottom: 1px solid #222; color: #ccc; 
-            word-wrap: break-word; overflow-wrap: break-word; /* Forces long links to wrap */
+            padding: 8px; border-bottom: 1px solid #222; color: #ccc; 
+            word-wrap: break-word; overflow-wrap: anywhere; /* Aggressive wrapping for hashes/keys */
+            vertical-align: top;
         }
-        .data-table tr:hover { background: #161616; }
-        input[type="number"], input[type="text"], textarea { background: #080808 !important; border-color: #333; }
-        .badge { padding: 2px 6px; border-radius: 3px; font-size: 0.7rem; background: #333; }
-        .badge-10 { background: #d19a66; color: #000; } 
+        .data-table tr:hover { background: #111; }
+        
+        /* FORM FIXES */
+        input[type="number"], input[type="text"], textarea, select { 
+            background: #080808 !important; border: 1px solid #333 !important; color: #fff !important; 
+            padding: 8px; font-family: monospace; width: 100%; box-sizing: border-box;
+        }
+        .badge { padding: 2px 5px; border-radius: 2px; font-size: 0.65rem; background: #333; border: 1px solid #444; }
+        .badge-10 { border-color: #d19a66; color: #d19a66; background: transparent; } 
     </style>
 </head>
 <body class="admin-mode <?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?>>
@@ -366,11 +374,11 @@ if ($tab === 'logs') {
 
     <div class="main-panel">
         
-        <?php if($tab === 'config'): ?>
+<?php if($tab === 'config'): ?>
         <div class="panel-header"><h2 class="panel-title">System Configuration</h2></div>
         <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
         
-            <form method="POST" enctype="multipart/form-data" style="max-width: 600px;">
+        <form method="POST" enctype="multipart/form-data" style="max-width: 600px;">
             
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px;">
                 <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 0;">ACCESS CONTROL</h3>
@@ -400,8 +408,6 @@ if ($tab === 'logs') {
                 <div class="input-group"><label>Target Max</label><input type="number" name="max_sum" value="<?= $settings['captcha_max_sum']?>"></div>
             </div>
 
-
-
             <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 20px 0 15px 0;">SITE CONTROLS</h3>
             <div class="input-group">
                 <label>PGP Challenge Message</label>
@@ -415,42 +421,45 @@ if ($tab === 'logs') {
                 <label>Chat Emoji Presets</label>
                 <input type="text" name="emoji_presets" value="<?= htmlspecialchars($settings['chat_emoji_presets'] ?? '❤️,🔥,👍,💀') ?>" style="width:100%; padding:10px;">
             </div>
-<div class="input-group">
+            <div class="input-group">
                 <label>Color Palette (JSON)</label>
                 <textarea name="palette" style="height: 100px; font-family: monospace;"><?= htmlspecialchars($settings['palette_json']) ?></textarea>
             </div>
 
             <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 20px 0 15px 0;">GLOBAL VISUAL THEME</h3>
-            <div class="input-group" style="margin: 20px 0; border: 1px dashed #333; padding: 15px;">
+            
+            <div class="input-group" style="border: 1px dashed #333; padding: 10px; margin-bottom: 15px;">
                 <label style="color: #e5c07b;">INVITE SYSTEM RESTRICTION</label>
-                <div style="display: flex; align-items: center; gap: 15px;">
-                    <span style="font-size: 0.7rem; color: #666;">Min Rank Required:</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 0.7rem; color: #666;">Min Rank:</span>
                     <input type="number" name="invite_min_rank" value="<?= $settings['invite_min_rank'] ?? 5 ?>" min="1" max="10" style="width: 60px; text-align: center;">
-                    <span style="font-size: 0.7rem; color: #444;">(Default: 5. Set to 10 to disable for all but Owners)</span>
-                </div>
-            </div>
-                    <select name="site_theme" style="width:100%; background:#080808; border:1px solid #333; color:#ccc; padding:10px;">
-                        <option value="" <?= ($settings['site_theme']??'')==''?'selected':'' ?>>Default (System)</option>
-                        <option value="theme-christmas" <?= ($settings['site_theme']??'')=='theme-christmas'?'selected':'' ?>>Christmas</option>
-                        <option value="theme-spooky" <?= ($settings['site_theme']??'')=='theme-spooky'?'selected':'' ?>>Halloween / Spooky</option>
-                        <option value="theme-matrix" <?= ($settings['site_theme']??'')=='theme-matrix'?'selected':'' ?>>Matrix / Terminal</option>
-                    </select>
-                </div>
-                <div class="input-group">
-                    <label>Background Image</label>
-                    <input type="hidden" name="saved_bg_url" value="<?= htmlspecialchars($settings['site_bg_url']??'') ?>">
-                    <input type="file" name="bg_upload" style="background:#080808; border:1px solid #333; padding:10px; width:100%;">
-                    <?php if(!empty($settings['site_bg_url'])): ?>
-                        <div style="margin-top:5px; padding:5px; border:1px solid #333; background:#111;">
-                            <label style="color:#e06c75; font-size:0.7rem; cursor:pointer;"><input type="checkbox" name="remove_bg"> REMOVE BACKGROUND</label>
-                            <div style="font-size:0.7rem; color:#666;"><?= htmlspecialchars($settings['site_bg_url']) ?></div>
-                        </div>
-                    <?php endif; ?>
                 </div>
             </div>
 
-            <button type="submit" class="btn-primary">APPLY CHANGES</button>
-        </form> 
+            <div class="input-group">
+                <label>Theme Selection</label>
+                <select name="site_theme" style="width:100%; background:#080808; border:1px solid #333; color:#ccc; padding:10px;">
+                    <option value="" <?= ($settings['site_theme']??'')==''?'selected':'' ?>>Default (System)</option>
+                    <option value="theme-christmas" <?= ($settings['site_theme']??'')=='theme-christmas'?'selected':'' ?>>Christmas</option>
+                    <option value="theme-spooky" <?= ($settings['site_theme']??'')=='theme-spooky'?'selected':'' ?>>Halloween / Spooky</option>
+                    <option value="theme-matrix" <?= ($settings['site_theme']??'')=='theme-matrix'?'selected':'' ?>>Matrix / Terminal</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label>Background Image</label>
+                <input type="hidden" name="saved_bg_url" value="<?= htmlspecialchars($settings['site_bg_url']??'') ?>">
+                <input type="file" name="bg_upload" style="background:#080808; border:1px solid #333; padding:10px; width:100%;">
+                <?php if(!empty($settings['site_bg_url'])): ?>
+                    <div style="margin-top:5px; padding:5px; border:1px solid #333; background:#111;">
+                        <label style="color:#e06c75; font-size:0.7rem; cursor:pointer;"><input type="checkbox" name="remove_bg"> REMOVE BACKGROUND</label>
+                        <div style="font-size:0.7rem; color:#666;"><?= htmlspecialchars($settings['site_bg_url']) ?></div>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <button type="submit" class="btn-primary" style="margin-top: 20px;">APPLY CHANGES</button>
+        </form>
         <?php endif; ?>
 
         <?php if($tab === 'users'): ?>
@@ -471,7 +480,15 @@ if ($tab === 'logs') {
         </details>
         
         <table class="data-table">
-            <thead><tr><th>ID</th><th>Username</th><th>Rank</th><th>Created</th><th>Action</th></tr></thead>
+            <thead>
+                <tr>
+                    <th style="width: 50px;">ID</th>
+                    <th>Username</th>
+                    <th style="width: 60px;">Rank</th>
+                    <th>Created</th>
+                    <th style="width: 160px;">Action</th>
+                </tr>
+            </thead>
             <tbody>
             <?php foreach($users as $u): ?>
             <tr>
@@ -632,7 +649,12 @@ if ($tab === 'logs') {
 
         <div class="panel-header"><h2 class="panel-title">Active Database</h2></div>
         <table class="data-table">
-            <thead><tr><th>Title / URL</th><th>Action</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>Title / URL</th>
+                    <th style="width: 90px;">Action</th>
+                </tr>
+            </thead>
             <tbody>
             <?php 
             $approved = $pdo->query("SELECT * FROM shared_links WHERE status = 'approved' ORDER BY created_at DESC LIMIT 50")->fetchAll();

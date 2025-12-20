@@ -67,20 +67,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // 2. Parse Emojis
         $msg = parse_emojis($msg);
-
-        // 3. LINK INTERCEPT (Tor-friendly regex)
-        // Catches http/https links. Saves original message to 'shared_links' and STOPS chat insertion.
-        if (preg_match('/(https?:\/\/[^\s]+)/i', $msg, $matches)) {
+        
+        // 3. LINK INTERCEPT
+        // Catches http/https links. 
+        // BYPASS: Admins (Rank 9+) skip this and post directly.
+        $is_admin = (isset($_SESSION['rank']) && $_SESSION['rank'] >= 9);
+        
+        if (!$is_admin && preg_match('/(https?:\/\/[^\s]+)/i', $msg, $matches)) {
             $url = $matches[1];
-            
             try {
-                // Insert into Pending Links with the ORIGINAL message content
                 $stmt_l = $pdo->prepare("INSERT INTO shared_links (url, posted_by, status, original_message) VALUES (?, ?, 'pending', ?)");
                 $stmt_l->execute([$url, $_SESSION['username'], $msg]);
-                
-                // Feedback to user (Only they see this redirect)
-                // We use a specific parameter to show a localized success message if you wanted, 
-                // but for now we just reload.
             } catch (Exception $e) { }
             
             header("Location: chat_input.php?status=link_pending"); 
@@ -101,64 +98,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html>
 <head>
     <link rel="stylesheet" href="style.css">
-    <style>
-        body { background: #0d0d0d; margin: 0; padding: 15px 20px; overflow: hidden; font-family: monospace; }
-        form { display: flex; width: 100%; }
-        input { flex: 1; background: #111; border: 1px solid #333; color: #eee; padding: 12px; font-family: inherit; outline: none; }
+<style>
+        body { background: #0d0d0d; margin: 0; padding: 5px; overflow: hidden; font-family: monospace; position: relative; }
+        form { display: flex; width: 100%; height: 100%; align-items: center; }
+        input { flex: 1; background: #111; border: 1px solid #333; color: #eee; padding: 8px; font-family: inherit; outline: none; height: 30px; box-sizing: border-box; }
         input:focus { border-color: #555; background: #000; }
-        button { background: #222; border: 1px solid #333; border-left: none; color: #6a9c6a; padding: 0 25px; cursor: pointer; font-weight: bold; }
+        button { background: #222; border: 1px solid #333; border-left: none; color: #6a9c6a; padding: 0 15px; cursor: pointer; font-weight: bold; font-size: 0.7rem; height: 30px; }
         button:hover { background: #6a9c6a; color: #000; }
-        .info-bar { font-size: 0.7rem; padding: 5px 10px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; }
-        .pending-msg { background: #1a1005; color: #e5c07b; border: 1px dashed #e5c07b; }
-        .reply-msg { background: #1a0505; color: #e06c75; border: 1px solid #e06c75; border-bottom: none; }
+        
+        .overlay-msg {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #1a1005; color: #e5c07b; 
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.75rem; z-index: 99;
+            border: 1px dashed #e5c07b;
+        }
+        .overlay-msg a { color: #fff; margin-left: 10px; text-decoration: none; font-weight: bold; }
     </style>
 </head>
 <body style="background: #0d0d0d; margin: 0; padding: 5px; font-family: monospace;">
-    <?php
-    // Check for Unread PMs (Persistent)
-    $pm_count = 0;
-    try {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND is_read = 0");
-        $stmt->execute([$_SESSION['user_id']]);
-        $pm_count = $stmt->fetchColumn();
-    } catch(Exception $e){}
-    ?>
 
-<?php 
-    // Red Box Logic Removed - Handled by Stream
-    ?>
-    <?php
-    $reply_user = isset($_GET['reply_user']) ? htmlspecialchars($_GET['reply_user']) : '';
-    $reply_text = isset($_GET['reply_text']) ? htmlspecialchars($_GET['reply_text']) : '';
-    $is_reply = !empty($reply_user);
-    $link_pending = (isset($_GET['status']) && $_GET['status'] == 'link_pending');
-    ?>
+    <?php if($link_pending): ?>
+        <div class="overlay-msg">
+            <span>[INFO] LINK DETAINED FOR MODERATION</span>
+            <a href="chat_input.php">[ OK ]</a>
+        </div>
+    <?php endif; ?>
 
-    <form method="POST" autocomplete="off" style="display: flex; flex-direction: column; width: 100%;">
-        
-        <?php if($link_pending): ?>
-            <div class="info-bar pending-msg">
-                <span>[INFO] Link detained for moderation. Message will appear once approved.</span>
-                <a href="chat_input.php" style="color: inherit; text-decoration: none;">[X]</a>
-            </div>
-        <?php endif; ?>
-
+    <form method="POST" autocomplete="off">
         <?php if($is_reply): ?>
-            <div class="info-bar reply-msg">
-                <span>Replying to: <strong><?= $reply_user ?></strong></span>
-                <a href="chat_input.php" style="color: #888; text-decoration: none;">[ CANCEL ]</a>
-            </div>
             <input type="hidden" name="quote_data" value="<?= "\n[quote=" . $reply_user . "]" . $reply_text . "[/quote]" ?>">
+            <div style="position:absolute; top:-20px; left:0; background:#222; color:#fff; font-size:0.6rem; padding:2px 5px;">Replying...</div>
         <?php endif; ?>
         
-        <div style="display: flex; border: 1px solid #333; background: #000;">
-            <a href="help_bbcode.php" target="chat_stream" style="background: #161616; color: #6a9c6a; border-right: 1px solid #333; padding: 0 15px; font-weight: bold; font-size: 1rem; display: flex; align-items: center; text-decoration: none;" title="View Codes">
-                [?]
-            </a>
-
-            <input type="text" name="message" placeholder="Type a message..." autofocus required 
-                   style="flex-grow: 1; background: transparent; border: none; color: #ffffff !important; padding: 12px; font-family: inherit; outline: none; caret-color: #6a9c6a;">
-            <button type="submit" style="background: #1a1a1a; color: #6a9c6a; border: none; border-left: 1px solid #333; padding: 0 30px; cursor: pointer; font-weight: bold; font-size: 0.8rem;">SEND</button>
+        <div style="display: flex; width: 100%;">
+            <a href="help_bbcode.php" target="chat_stream" style="background: #161616; color: #6a9c6a; border: 1px solid #333; border-right: none; padding: 0 10px; font-weight: bold; font-size: 1rem; display: flex; align-items: center; text-decoration: none; height: 30px; box-sizing: border-box;" title="View Codes">[?]</a>
+            <input type="text" name="message" placeholder="Type a message..." autofocus required>
+            <button type="submit">SEND</button>
         </div>
     </form>
 </body>

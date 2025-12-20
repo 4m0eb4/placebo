@@ -119,7 +119,7 @@ $rank = $_SESSION['rank'] ?? 0;
     <div class="chat-container">
         <iframe name="chat_stream" src="chat_stream.php" style="flex: 1; border: none; width: 100%; display:block;"></iframe>
 
-        <div style="height: 170px; background: #0d0d0d; border-top: 1px solid #222; flex-shrink: 0; display:flex; flex-direction:column;">
+        <div style="height: 115px; background: #0d0d0d; border-top: 1px solid #222; flex-shrink: 0; display:flex; flex-direction:column;">
             
             <div style="flex: 1; overflow:hidden;">
                 <iframe name="chat_input" src="chat_input.php" style="width: 100%; height:100%; border: none; display:block;"></iframe>

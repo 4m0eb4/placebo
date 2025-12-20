@@ -352,73 +352,80 @@ if ($kill_stream) {
                 if ($row_r) render_update($row_r, $my_rank, $emoji_presets);
             }
         }
-// 4. LIVE PM ALERTS (Bottom Bar Style)
-        static $prev_alert_id = null;
+// 4. UNIFIED ALERTS (PMs + Admin Links)
+        static $last_hash = null;       
+        static $current_alert_id = null;
         
-if ($heartbeat % 5 === 0) {
-            // Clear previous alert if exists
-            if ($prev_alert_id) {
-                echo "<style>#{$prev_alert_id} { display: none !important; }</style>";
-                $prev_alert_id = null;
-            }
-
+        if ($heartbeat % 5 === 0) {
+            // Check PMs
             $chk_pm = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND is_read = 0");
             $chk_pm->execute([$_SESSION['user_id']]);
-            $unread = $chk_pm->fetchColumn();
+            $pm_count = (int)$chk_pm->fetchColumn();
 
-            // 1. PM ALERT (THEMED & STATIC)
-            if ($unread > 0) {
-                $new_id = "pm_alert_" . time();
-                $prev_alert_id = $new_id;
-                
-                echo "
-                <style>
-                    #$new_id {
-                        position: fixed; bottom: 0; left: 0; width: 100%;
-                        background: var(--alert-bg, #1a1005); 
-                        color: var(--alert-text, #e5c07b); 
-                        border-top: 1px dashed var(--alert-border, #e5c07b); 
-                        padding: 8px 15px; 
-                        font-family: monospace; font-size: 0.7rem;
-                        display: flex; justify-content: space-between; align-items: center;
-                        z-index: 99999; box-sizing: border-box;
-                    }
-                    #$new_id a { color: inherit; text-decoration: underline; font-weight: bold; cursor: pointer; }
-                </style>
-                <div id='$new_id'>
-                    <span>[INFO] <strong>$unread Encrypted Signal(s)</strong> detected.</span>
-                    <a href='pm.php' target='_blank'>[ DECRYPT ]</a>
-                </div>";
+            // Check Links (Admins Only)
+            $link_count = 0;
+            if ($my_rank >= 9) {
+                $link_count = (int)$pdo->query("SELECT COUNT(*) FROM shared_links WHERE status='pending'")->fetchColumn();
             }
 
-            // 2. LINK ALERT (ADMINS ONLY)
-            if ($my_rank >= 9) {
-                $chk_link = $pdo->query("SELECT COUNT(*) FROM shared_links WHERE status='pending'")->fetchColumn();
-                if ($chk_link > 0) {
-                    $link_id = "lnk_alert_" . time();
-                    // Offset by 35px if PM alert is present, else 0
-                    $offset = ($unread > 0) ? "35px" : "0";
+            // Create State Hash
+            $current_hash = $pm_count . "_" . $link_count;
+
+            if ($current_hash !== $last_hash) {
+                // 1. Hide previous alert if exists
+                if ($current_alert_id) {
+                    echo "<style>#{$current_alert_id} { display: none !important; }</style>";
+                    $current_alert_id = null;
+                }
+
+                // 2. Generate New Alert if needed
+                if ($pm_count > 0 || $link_count > 0) {
+                    $new_id = "alert_" . time();
+                    $chk_id = "chk_" . $new_id;
+                    $current_alert_id = $new_id;
+
+                    // Build Message
+                    $parts = [];
+                    if ($pm_count > 0) $parts[] = "$pm_count PM(s)";
+                    if ($link_count > 0) $parts[] = "$link_count Link(s)";
+                    $msg_str = implode(" + ", $parts);
                     
+                    // Build Actions
+                    $actions = "";
+                    if ($pm_count > 0) $actions .= "<a href='pm.php' target='_blank'>[ INBOX ]</a> ";
+                    if ($link_count > 0) $actions .= "<a href='admin_dash.php?view=links' target='_blank'>[ REVIEW ]</a> ";
+
                     echo "
                     <style>
-                        #$link_id {
-                            position: fixed; bottom: $offset; left: 0; width: 100%;
-                            background: var(--panel-bg, #111); 
-                            color: var(--accent-primary, #6a9c6a); 
-                            border-top: 1px dashed var(--accent-primary, #6a9c6a); 
+                        #$new_id {
+                            position: fixed; bottom: 0; left: 0; width: 100%;
+                            background: var(--alert-bg, #1a1005); 
+                            color: var(--alert-text, #e06c75); 
+                            border-top: 1px dashed var(--alert-border, #e06c75); 
                             padding: 8px 15px; 
                             font-family: monospace; font-size: 0.7rem;
                             display: flex; justify-content: space-between; align-items: center;
-                            z-index: 99998; box-sizing: border-box;
+                            z-index: 99999; box-sizing: border-box;
                         }
+                        #$new_id a, #$new_id label { color: inherit; text-decoration: none; font-weight: bold; cursor: pointer; margin-left: 10px; }
+                        #$new_id a:hover, #$new_id label:hover { text-decoration: underline; }
+                        
+                        #$chk_id { display: none; }
+                        #$chk_id:checked + #$new_id { display: none !important; }
                     </style>
-                    <div id='$link_id'>
-                        <span>[SIGNAL] <strong>$chk_link Pending Link(s)</strong> waiting.</span>
-                        <a href='admin_dash.php?view=links' target='_top' style='color:inherit; font-weight:bold; text-decoration:none;'>[ REVIEW ]</a>
+
+                    <input type='checkbox' id='$chk_id'>
+                    <div id='$new_id'>
+                        <span>[SIGNAL] <strong>$msg_str</strong> Pending.</span>
+                        <div>
+                            $actions
+                            <label for='$chk_id'>[ CLOSE ]</label>
+                        </div>
                     </div>";
                 }
+                $last_hash = $current_hash;
             }
-        }
+        } // End Heartbeat Check
 
         echo " "; flush();
         sleep(1);

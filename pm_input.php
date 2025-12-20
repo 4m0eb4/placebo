@@ -48,6 +48,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// 5. GET ACTIONS (Deletion)
+if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['msg_id'])) {
+    $mid = (int)$_GET['msg_id'];
+    // Verify ownership before deleting
+    $del = $pdo->prepare("DELETE FROM private_messages WHERE id = ? AND sender_id = ?");
+    $del->execute([$mid, $my_id]);
+    header("Location: pm_input.php?to=$target_id");
+    exit;
+}
+
 // --- CHECK BURN STATUS ---
 $is_burning = false;
 $chk = $pdo->prepare("SELECT count(*) FROM private_messages WHERE (sender_id=? OR receiver_id=?) AND message='[SYSTEM::BURN_REQUEST]'");
@@ -58,20 +68,16 @@ if ($chk->fetchColumn() > 0) $is_burning = true;
 <html>
 <head>
     <link rel="stylesheet" href="style.css">
-    <style>
-        body { background: #111; margin: 0; padding: 15px; font-family: monospace; overflow: hidden; }
-        form { display: flex; flex-direction: column; gap: 10px; height: 100%; }
-        .input-row { display: flex; gap: 10px; }
+   <style>
+        body { background: #111; margin: 0; padding: 8px; font-family: monospace; overflow: hidden; }
+        form { display: flex; flex-direction: column; gap: 4px; height: 100%; }
+        .input-row { display: flex; gap: 4px; }
         
         input[type="text"] {
             flex-grow: 1; background: #000; color: #fff; border: 1px solid #333; 
-            padding: 12px; font-family: monospace; outline: none;
+            padding: 8px; font-family: monospace; outline: none; height: 30px;
         }
-        input[type="text"]:focus { border-color: #6a9c6a; }
-        
-        .toolbar { display: flex; justify-content: flex-end; gap: 10px; align-items: center; }
-        
-        button { cursor: pointer; font-family: monospace; font-weight: bold; font-size: 0.7rem; padding: 5px 15px; }
+        button { height: 30px; font-size: 0.65rem; padding: 0 10px; }
         .btn-send { background: #1a1a1a; color: #6a9c6a; border: 1px solid #333; height: 42px; padding: 0 25px; }
         .btn-send:hover { background: #6a9c6a; color: #000; }
         
@@ -87,7 +93,7 @@ if ($chk->fetchColumn() > 0) $is_burning = true;
 <body>
     <form method="POST" autocomplete="off">
         <div class="input-row">
-            <input type="text" name="message" required autofocus placeholder="Type secure message...">
+            <input type="text" name="message" autofocus placeholder="Type secure message...">
             <button type="submit" name="send_msg" class="btn-send">SEND</button>
         </div>
         

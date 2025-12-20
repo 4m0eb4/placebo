@@ -79,6 +79,7 @@ try {
 <!DOCTYPE html>
 <html>
 <head>
+    <meta http-equiv="refresh" content="30">
     <style>
         /* STRICT RESET */
         * { box-sizing: border-box; }
@@ -110,7 +111,7 @@ try {
         /* INBOX LINK STYLE */
         .inbox-link { text-decoration: none; margin-right: 15px; font-weight: bold; font-size: 0.65rem; }
         .inbox-read { color: #666; }
-        .inbox-unread { color: #e06c75; animation: pulse-text 2s infinite; }
+        .inbox-unread { color: #e06c75 !important; border-bottom: 1px solid #e06c75; animation: pulse-text 2s infinite; }
         @keyframes pulse-text { 0% {opacity:1;} 50% {opacity:0.5;} 100% {opacity:1;} }
 
         /* ROWS */
