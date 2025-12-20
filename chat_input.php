@@ -24,9 +24,15 @@ if (!isset($_SESSION['fully_authenticated'])) {
 
 // IF DEAD: Immediate Halt
 if ($kill) {
-    // Session Dead - Full Window Reset Link
-    echo "<style>html,body{background:#000;margin:0;height:100%;overflow:hidden;}a{display:flex;width:100%;height:100%;align-items:center;justify-content:center;text-decoration:none;color:#e06c75;font-family:monospace;font-weight:bold;background:#000;}</style>";
-    echo "<a href='index.php' target='_top'>🚫 CONNECTION LOST [CLICK TO RESET]</a>";
+    echo "<style>
+        html, body { background: #000 !important; margin: 0; padding: 0; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        .kill-msg { 
+            color: #e06c75; font-family: monospace; font-weight: bold; text-decoration: none; 
+            border: 1px solid #e06c75; padding: 10px 20px; background: #1a0505; text-transform: uppercase;
+        }
+        form, input, button { display: none !important; }
+    </style>";
+    echo "<a href='terminated.php' target='_top' class='kill-msg'>🚫 SIGNAL LOST // EXIT</a>";
     exit;
 }
 
@@ -108,6 +114,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 </head>
 <body style="background: #0d0d0d; margin: 0; padding: 5px; font-family: monospace;">
+    <?php
+    // Check for Unread PMs (Persistent)
+    $pm_count = 0;
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND is_read = 0");
+        $stmt->execute([$_SESSION['user_id']]);
+        $pm_count = $stmt->fetchColumn();
+    } catch(Exception $e){}
+    ?>
+
+    <?php if($pm_count > 0): ?>
+        <div class="input-pm-alert">
+            <span><strong>⚠ INCOMING:</strong> You have <?= $pm_count ?> unread secure message(s).</span>
+            <a href="pm.php" target="_top" style="color:inherit; text-decoration:underline;">[ VIEW ]</a>
+        </div>
+    <?php endif; ?>
     <?php
     $reply_user = isset($_GET['reply_user']) ? htmlspecialchars($_GET['reply_user']) : '';
     $reply_text = isset($_GET['reply_text']) ? htmlspecialchars($_GET['reply_text']) : '';

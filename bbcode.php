@@ -157,11 +157,17 @@ function parse_bbcode($text) {
         '/\[h1\](.*?)\[\/h1\]/s',
         '/\[h2\](.*?)\[\/h2\]/s',
         '/\[hr\]/s',
+        '/\[hr=([a-z]+)\]/s', // Dynamic HR
         '/\[center\](.*?)\[\/center\]/s',
         '/\[right\](.*?)\[\/right\]/s',
         '/\[quote=(.*?)\](.*?)\[\/quote\]/s',
         '/\[quote\](.*?)\[\/quote\]/s',
         '/\[code\](.*?)\[\/code\]/s',
+        
+        // --- EXPANDED VISUALS ---
+        '/\[accordion title=(.*?)\](.*?)\[\/accordion\]/s',
+        '/\[list=fancy\](.*?)\[\/list\]/s',
+        '/\[box=animated\](.*?)\[\/box\]/s',
 
         // --- MYRIAD CODES ---
         '/\[cmd\](.*?)\[\/cmd\]/s',
@@ -193,11 +199,17 @@ function parse_bbcode($text) {
         '<h2 style="color:var(--accent-secondary); border-bottom:1px solid var(--border-color); margin:15px 0 10px 0;">$1</h2>',
         '<h3 style="color:var(--accent-primary); margin:10px 0 5px 0;">$1</h3>',
         '<hr style="border:0; border-bottom:1px solid var(--border-color); margin:20px 0;">',
+        '<hr class="hr-$1" style="border:0; height:2px; margin:20px 0; background:var(--accent-primary);">', // Simple fallback for HR
         '<div style="text-align:center;">$1</div>',
         '<div style="text-align:right;">$1</div>',
         '<blockquote style="border-left:3px solid var(--accent-primary); margin:10px 0; padding:10px 15px; background:var(--panel-bg); color:var(--text-main);"><strong style="color:var(--accent-secondary); display:block; margin-bottom:5px;">$1 wrote:</strong>$2</blockquote>',
         '<blockquote style="border-left:3px solid var(--accent-primary); margin:10px 0; padding:10px 15px; background:var(--panel-bg); color:var(--text-main);">$1</blockquote>',
         '<pre style="background:#080808; padding:10px; border:1px solid var(--border-color); overflow-x:auto; color:#ccc;">$1</pre>',
+        
+        // VISUALS
+        '<details style="background:#111; border:1px solid #333; margin:10px 0;"><summary style="padding:10px; cursor:pointer; color:var(--accent-secondary); font-weight:bold; background:#1a1a1a;">$1</summary><div style="padding:15px; border-top:1px solid #333;">$2</div></details>',
+        '<ul style="list-style:none; padding-left:10px;">$1</ul>', // Combined with [*] replacement below, this works
+        '<div style="border:1px solid var(--accent-primary); padding:15px; box-shadow:0 0 10px rgba(106,156,106,0.2); margin:10px 0;">$1</div>',
 
         // MYRIAD REPLACEMENTS
         '<span class="bb-cmd">$1</span>',

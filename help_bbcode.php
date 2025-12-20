@@ -195,6 +195,18 @@ require 'bbcode.php';
     <div style="margin-top:20px; border-top:1px solid #222; padding-top:10px; text-align:center; color:#444; font-size:0.6rem;">
         // CLICK TO SELECT // COPY TO CLIPBOARD
     </div>
+    <div class="section-bar">Interactive (v2)</div>
+    <div class="grid-2-col">
+        <div class="module"><span class="mod-code">[accordion title=X]..[/accordion]</span><span class="mod-desc">EXPAND</span></div>
+        <div class="module"><span class="mod-code">[box=animated]..[/box]</span><span class="mod-desc">PULSE BOX</span></div>
+        <div class="module"><span class="mod-code">[list=fancy]..[/list]</span><span class="mod-desc">TERM LIST</span></div>
+    </div>
+
+    <div class="section-bar">Dividers</div>
+    <div class="grid-2-col">
+        <div class="module"><span class="mod-code">[hr=glitch]</span><span class="mod-desc">GLITCH LINE</span></div>
+        <div class="module"><span class="mod-code">[hr=neon]</span><span class="mod-desc">NEON LINE</span></div>
+    </div>
 
 </div> </body>
 </html>

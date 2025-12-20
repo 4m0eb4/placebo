@@ -97,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'site_theme' => $_POST['site_theme'],
             'site_bg_url' => $bg_path,
             // --- NEW REGISTRATION CONTROLS ---
+            'invite_min_rank' => $_POST['invite_min_rank'] ?? 5,
             'registration_enabled' => isset($_POST['reg_enabled']) ? '1' : '0',
             'registration_msg' => $_POST['reg_msg']
         ];
@@ -223,35 +224,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Link Deleted.";
         }
 
-        // APPROVE (With Title Support)
+        // APPROVE (With Title & Admin Note Support)
         if (isset($_POST['approve_link'])) {
             $lid = $_POST['link_id'];
             $title_val = trim($_POST['link_title']);
+            $app_msg = trim($_POST['approval_msg'] ?? ''); // Fetch Admin Note
             
-            // 1. Mark Approved + Save Title
+            // 1. Mark Approved
             $stmt = $pdo->prepare("UPDATE shared_links SET status = 'approved', title = ? WHERE id = ?");
             $stmt->execute([$title_val, $lid]);
             
-            // 2. Fetch Original Message to Release it
+            // 2. Fetch & Release
             $stmt_l = $pdo->prepare("SELECT original_message, posted_by FROM shared_links WHERE id = ?");
             $stmt_l->execute([$lid]);
             $link_row = $stmt_l->fetch();
             
             if ($link_row && !empty($link_row['original_message'])) {
-                // Determine User ID from username (best effort)
+                // User Lookup
                 $u_stmt = $pdo->prepare("SELECT id, rank, chat_color FROM users WHERE username = ?");
                 $u_stmt->execute([$link_row['posted_by']]);
                 $u_row = $u_stmt->fetch();
                 
-                $uid = $u_row['id'] ?? 0;
-                $rank = $u_row['rank'] ?? 1;
-                $color = $u_row['chat_color'] ?? '#888888';
+                $final_msg = $link_row['original_message'];
                 
-                // INSERT INTO CHAT
+                // Append Admin Note if exists
+                if (!empty($app_msg)) {
+                    $final_msg .= "\n\n[quote=SYSTEM][color=#6a9c6a]APPROVED:[/color] " . htmlspecialchars($app_msg) . "[/quote]";
+                }
+
                 $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, 'normal')")
-                    ->execute([$uid, $link_row['posted_by'], $link_row['original_message'], $rank, $color]);
+                    ->execute([$u_row['id']??0, $link_row['posted_by'], $final_msg, $u_row['rank']??1, $u_row['chat_color']??'#888']);
             }
-            $msg = "Link Approved & Message Released to Stream.";
+            $msg = "Link Approved.";
         }
         if (isset($_POST['ban_link'])) {
             // 1. Mark Banned
@@ -274,6 +278,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // 7. AUTOMOD ACTIONS
     if ($tab === 'automod') {
+        // A. Username Blacklist
+        if (isset($_POST['save_name_blacklist'])) {
+            $list = trim($_POST['name_blacklist']);
+            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('blacklist_usernames', ?) ON DUPLICATE KEY UPDATE setting_value = ?")
+                ->execute([$list, $list]);
+            $msg = "Username Restrictions Updated.";
+        }
+
+        // B. Content Patterns
         if (isset($_POST['add_pattern'])) {
             $pat = trim($_POST['pattern']);
             if ($pat) {
@@ -410,9 +423,14 @@ if ($tab === 'logs') {
             </div>
 
             <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 20px 0 15px 0;">GLOBAL VISUAL THEME</h3>
-            <div style="display:grid; grid-template-columns: 1fr 2fr; gap: 15px;">
-                <div class="input-group">
-                    <label>Seasonal Mode</label>
+            <div class="input-group" style="margin: 20px 0; border: 1px dashed #333; padding: 15px;">
+                <label style="color: #e5c07b;">INVITE SYSTEM RESTRICTION</label>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <span style="font-size: 0.7rem; color: #666;">Min Rank Required:</span>
+                    <input type="number" name="invite_min_rank" value="<?= $settings['invite_min_rank'] ?? 5 ?>" min="1" max="10" style="width: 60px; text-align: center;">
+                    <span style="font-size: 0.7rem; color: #444;">(Default: 5. Set to 10 to disable for all but Owners)</span>
+                </div>
+            </div>
                     <select name="site_theme" style="width:100%; background:#080808; border:1px solid #333; color:#ccc; padding:10px;">
                         <option value="" <?= ($settings['site_theme']??'')==''?'selected':'' ?>>Default (System)</option>
                         <option value="theme-christmas" <?= ($settings['site_theme']??'')=='theme-christmas'?'selected':'' ?>>Christmas</option>
@@ -579,30 +597,27 @@ if ($tab === 'logs') {
 
         <div class="panel-header"><h2 class="panel-title">Pending Intercepts</h2></div>
         <table class="data-table" style="margin-bottom:30px;">
-            <thead><tr><th>URL / Context</th><th>User</th><th>Action</th></tr></thead>
+            <thead><tr><th>Details</th><th>Action</th></tr></thead>
             <tbody>
             <?php 
             $pending = $pdo->query("SELECT * FROM shared_links WHERE status = 'pending' ORDER BY created_at DESC")->fetchAll();
-            if(empty($pending)) echo "<tr><td colspan='3' style='text-align:center; color:#444;'>No pending links.</td></tr>";
+            if(empty($pending)) echo "<tr><td colspan='2' style='text-align:center; color:#444;'>No pending links.</td></tr>";
             foreach($pending as $l): ?>
             <tr>
-                <td style="max-width:300px; overflow:hidden; font-family:monospace; color:#888;">
-                    <div style="color:#e5c07b;"><?= htmlspecialchars($l['url']) ?></div>
-                    <div style="color:#444; font-size:0.65rem;">"<?= htmlspecialchars(substr($l['original_message'] ?? '', 0, 50)) ?>..."</div>
+                <td style="max-width:500px; overflow:hidden; white-space:nowrap; vertical-align:middle;">
+                    <span style="color:#666; font-size:0.7rem;">[<?= htmlspecialchars($l['posted_by']) ?>]</span>
+                    <a href="<?= htmlspecialchars($l['url']) ?>" target="_blank" style="color:#e5c07b; margin-left:10px; text-decoration:none; font-family:monospace;"><?= htmlspecialchars(substr($l['url'], 0, 60)) ?>...</a>
                 </td>
-                <td><?= htmlspecialchars($l['posted_by']) ?></td>
-<td>
-                    <form method="POST" style="display:flex; gap:5px; align-items:center;">
+                <td style="vertical-align:middle;">
+                    <form method="POST" style="display:flex; gap:5px; align-items:center; margin:0;">
                         <input type="hidden" name="link_id" value="<?= $l['id'] ?>">
                         <input type="hidden" name="url_val" value="<?= htmlspecialchars($l['url']) ?>">
-                        <input type="text" name="link_title" placeholder="Title" style="width:100px; padding:4px; font-size:0.7rem; background:#000; color:#fff; border:1px solid #333;">
                         
-                        <select name="cat_select" style="width:80px; padding:4px; font-size:0.7rem; background:#000; color:#fff; border:1px solid #333;">
-                            <?php foreach($cats as $c): ?><option value="<?= $c['id'] ?>"><?= $c['name'] ?></option><?php endforeach; ?>
-                        </select>
-
-                        <button type="submit" name="approve_link" class="badge" style="background:#6a9c6a; border:none; cursor:pointer; color:#000;">OK</button>
-                        <button type="submit" name="ban_link" class="badge" style="background:#e06c75; border:none; cursor:pointer; color:#000;">BAN</button>
+                        <input type="text" name="link_title" placeholder="Link Title..." style="width:120px; padding:5px; font-size:0.7rem; background:#000; color:#fff; border:1px solid #333;">
+                        <input type="text" name="approval_msg" placeholder="Approve Msg..." style="width:120px; padding:5px; font-size:0.7rem; background:#000; color:#aaa; border:1px solid #333;">
+                        
+                        <button type="submit" name="approve_link" class="badge" style="background:#6a9c6a; color:#000; border:none; cursor:pointer; padding:6px 10px; font-weight:bold;">OK</button>
+                        <button type="submit" name="ban_link" class="badge" style="background:#e06c75; color:#000; border:none; cursor:pointer; padding:6px 10px; font-weight:bold;">BAN</button>
                     </form>
                 </td>
             </tr>
@@ -641,9 +656,19 @@ if ($tab === 'logs') {
 
 <?php endif; ?>
         <?php if($tab === 'automod'): ?>
-        <div class="panel-header"><h2 class="panel-title">Automod Blacklist</h2></div>
+        <div class="panel-header"><h2 class="panel-title">Automod & Restrictions</h2></div>
         <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
-        
+
+        <div style="background:#111; padding:15px; margin-bottom:30px; border:1px solid #333;">
+            <h3 style="color:#d19a66; font-size:0.9rem; margin-top:0;">RESTRICTED USERNAMES</h3>
+            <form method="POST">
+                <div style="margin-bottom:10px; font-size:0.7rem; color:#666;">Comma-separated list of banned names or substrings (e.g. admin, mod, staff).</div>
+                <textarea name="name_blacklist" style="width:100%; height:80px; background:#000; border:1px solid #444; color:#fff; padding:10px; font-family:monospace;"><?= htmlspecialchars($settings['blacklist_usernames'] ?? 'admin,root,system,mod,support,placebo') ?></textarea>
+                <button type="submit" name="save_name_blacklist" class="btn-primary" style="margin-top:10px; width:auto; padding:8px 15px;">SAVE RESTRICTIONS</button>
+            </form>
+        </div>
+
+        <h3 style="color:#e06c75; font-size:0.9rem; margin-bottom:10px;">BANNED CONTENT PATTERNS (URLS/TEXT)</h3>
         <div style="background:#111; padding:15px; margin-bottom:20px; border:1px solid #333;">
             <form method="POST" style="display:flex; gap:10px;">
                 <input type="text" name="pattern" placeholder="String or Domain to ban..." required style="flex:1; background:#000; border:1px solid #444; color:#fff; padding:8px;">

@@ -5,70 +5,75 @@ require 'db_config.php';
 // Auth Check
 if (!isset($_SESSION['fully_authenticated'])) exit;
 
-$my_id = $_SESSION['user_id'];
+$my_id = $_SESSION['user_id'] ?? 0;
 $my_rank = $_SESSION['rank'] ?? 0;
 
-// --- 1. INSTANT HEARTBEAT (FORCE ONLINE) ---
+// --- 1. INSTANT HEARTBEAT (FORCE UPDATE) ---
+// We run this immediately so the query below captures 'YOU' as active.
 try {
-    // Force update to ensure 'Me' shows in the list immediately
-    $stmt = $pdo->prepare("UPDATE users SET last_active = NOW() WHERE id = ?");
-    $stmt->execute([$my_id]);
-    
-    // GUEST HEARTBEAT (If applicable)
-    if(isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+    if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
         $pdo->prepare("UPDATE guest_tokens SET last_active = NOW() WHERE id = ?")->execute([$_SESSION['guest_token_id']]);
+    } else {
+        $pdo->prepare("UPDATE users SET last_active = NOW() WHERE id = ?")->execute([$my_id]);
     }
-} catch (Exception $e) {
-    // If this fails, the DB schema is likely missing 'last_active'.
-    // Please run db_master_update.php
-}
+} catch (Exception $e) {}
 
-// --- 2. FETCH USERS ---
-$active_users = [];
+// --- 1b. CHECK INBOX (NEW) ---
+$unread_count = 0;
 try {
-    // Admin sees everyone; Users see only visible
-    $visibility_check = ($my_rank >= 9) ? "1=1" : "(show_online = 1 OR id = $my_id)";
-    
-    // RELAXED QUERY: Fetch everyone seen in 24 hours.
-    // 'is_live' = 1 if seen in the last 5 minutes.
-    $stmt = $pdo->prepare("
-        SELECT id, username, rank, chat_color, user_status, last_active,
+    $stmt_pm = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND is_read = 0");
+    $stmt_pm->execute([$my_id]);
+    $unread_count = $stmt_pm->fetchColumn();
+} catch (Exception $e) {}
+
+// --- 2. FETCH & FILTER USERS ---
+$display_users = [];
+try {
+    // FETCH ALL RECENT USERS (Last 24h)
+    // We filter visibility in PHP to prevent SQL logic errors
+    $stmt = $pdo->query("
+        SELECT id, username, rank, chat_color, user_status, show_online, last_active,
                (CASE WHEN last_active > (NOW() - INTERVAL 5 MINUTE) THEN 1 ELSE 0 END) as is_live
         FROM users 
         WHERE last_active > (NOW() - INTERVAL 24 HOUR)
-        AND $visibility_check
         AND is_banned = 0
         ORDER BY is_live DESC, last_active DESC
     ");
-    $stmt->execute();
-    $active_users = $stmt->fetchAll();
+    $all_users = $stmt->fetchAll();
+
+    foreach($all_users as $u) {
+        $show = false;
+        
+        // VISIBILITY LOGIC:
+        // 1. It's Me (Always show myself)
+        if ($u['id'] == $my_id) $show = true;
+        // 2. I am Admin (I see everyone)
+        elseif ($my_rank >= 9) $show = true;
+        // 3. User is Public (show_online is ON)
+        elseif ($u['show_online'] == 1) $show = true;
+        // 4. User is Staff (Rank < 10 but maybe hidden? usually admins are visible to each other)
+        
+        if ($show) {
+            $display_users[] = $u;
+        }
+    }
+
 } catch (Exception $e) {
-    // Debug: If this fails, your DB is missing columns.
-    echo "";
+    // Database error
 }
 
 // --- 3. FETCH GUESTS ---
 $active_guests = [];
 try {
-    // STRICT 5 MINUTE TIMEOUT + GROUP BY (Prevent Duplicates)
     $stmt_g = $pdo->prepare("
         SELECT guest_username as username, '#888888' as color_hex
         FROM guest_tokens 
         WHERE last_active > (NOW() - INTERVAL 5 MINUTE)
         AND status = 'active'
-        GROUP BY guest_username
         ORDER BY guest_username ASC
     ");
     $stmt_g->execute();
     $active_guests = $stmt_g->fetchAll();
-    
-    // Get colors
-    foreach($active_guests as &$g) {
-        $c_stmt = $pdo->prepare("SELECT color_hex FROM chat_messages WHERE username = ? ORDER BY id DESC LIMIT 1");
-        $c_stmt->execute([$g['username']]);
-        $c = $c_stmt->fetchColumn();
-        if($c) $g['color_hex'] = $c;
-    }
 } catch (Exception $e) {}
 ?>
 <!DOCTYPE html>
@@ -85,26 +90,7 @@ try {
             overflow-x: hidden;
         }
 
-        /* HEADER */
-        .top-bar {
-            background: #161616;
-            border-bottom: 1px solid #333;
-            padding: 10px;
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
-            position: sticky; top: 0;
-            z-index: 100;
-        }
-        .monitor-label { font-size: 0.75rem; color: #6a9c6a; font-weight: bold; letter-spacing: 1px; }
-        .refresh-btn {
-            background: #000; border: 1px solid #333; color: #888;
-            padding: 4px 10px; font-size: 0.65rem; text-decoration: none;
-            cursor: pointer;
-        }
-        .refresh-btn:hover { color: #fff; border-color: #666; }
-
-        /* LIST CONTAINER */
+        /* CONTAINER */
         .list-container { padding: 0; margin: 0; }
 
         /* SECTION HEADERS */
@@ -112,10 +98,24 @@ try {
             background: #111;
             color: #555;
             font-size: 0.65rem;
-            padding: 6px 12px;
+            padding: 8px 12px;
             border-bottom: 1px solid #222;
-            text-transform: uppercase;
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
         }
+        .refresh-link { color: #6a9c6a; text-decoration: none; cursor: pointer; }
+        .refresh-link:hover { color: #fff; }
+        
+        /* INBOX LINK STYLE */
+        .inbox-link { text-decoration: none; margin-right: 15px; font-weight: bold; font-size: 0.65rem; }
+        .inbox-read { color: #666; }
+        .inbox-unread { color: #e06c75; animation: pulse-text 2s infinite; }
+        @keyframes pulse-text { 0% {opacity:1;} 50% {opacity:0.5;} 100% {opacity:1;} }
+
+        /* ROWS */
+        .refresh-link { color: #6a9c6a; text-decoration: none; cursor: pointer; }
+        .refresh-link:hover { color: #fff; }
 
         /* ROWS */
         .row {
@@ -146,8 +146,9 @@ try {
             font-size: 0.55rem; padding: 1px 4px; border: 1px solid #333; 
             border-radius: 2px; margin-left: 5px; color: #666; 
         }
-        .rank-10 { border-color: #d19a66; color: #d19a66; }
-        .rank-9 { border-color: #6a9c6a; color: #6a9c6a; }
+        .badge-10 { border-color: #d19a66; color: #d19a66; } /* Gold */
+        .badge-9 { border-color: #6a9c6a; color: #6a9c6a; }  /* Green */
+        .badge-5 { border-color: #56b6c2; color: #56b6c2; }  /* Blue */
 
         /* ACTION BUTTONS */
         .actions-col { display: flex; gap: 5px; }
@@ -163,20 +164,23 @@ try {
 </head>
 <body>
 
-    <div class="top-bar">
-        <span class="monitor-label">ACTIVE SIGNALS</span>
-        <a href="users_online.php" class="refresh-btn">REFRESH</a>
-    </div>
-
     <div class="list-container">
         
-        <div class="section-head">REGISTERED NODES (<?= count($active_users) ?>)</div>
+        <div class="section-head">
+            <span>NODES (<?= count($display_users) ?>)</span>
+            <div>
+                <a href="pm.php" target="_top" class="inbox-link <?= $unread_count > 0 ? 'inbox-unread' : 'inbox-read' ?>">
+                    [ INBOX<?= $unread_count > 0 ? ":$unread_count" : '' ?> ]
+                </a>
+                <a href="users_online.php" class="refresh-link">[ REFRESH ]</a>
+            </div>
+        </div>
         
-        <?php if(empty($active_users)): ?>
+        <?php if(empty($display_users)): ?>
             <div class="row" style="color:#444; font-style:italic; font-size:0.7rem;">No signals detected.</div>
         <?php endif; ?>
 
-       <?php foreach($active_users as $u): ?>
+       <?php foreach($display_users as $u): ?>
             <?php $opacity = $u['is_live'] ? '1.0' : '0.4'; ?>
             <div class="row" style="opacity: <?= $opacity ?>;">
                 <div class="info-col">
@@ -185,7 +189,7 @@ try {
                             <?= htmlspecialchars($u['username']) ?>
                         </a>
                         <?php if(!$u['is_live']): ?><span style="font-size:0.6rem; color:#666;">[IDLE]</span><?php endif; ?>
-                        <span class="badge rank-<?= $u['rank'] ?>">L<?= $u['rank'] ?></span>
+                        <span class="badge badge-<?= $u['rank'] ?>">L<?= $u['rank'] ?></span>
                     </div>
                     <?php if(!empty($u['user_status'])): ?>
                         <div class="status-line"><span class="pulse"></span> <?= htmlspecialchars($u['user_status']) ?></div>
@@ -208,7 +212,9 @@ try {
             </div>
         <?php endforeach; ?>
 
-        <div class="section-head">GUEST UPLINKS (<?= count($active_guests) ?>)</div>
+        <div class="section-head" style="margin-top:10px;">
+            <span>GUEST UPLINKS (<?= count($active_guests) ?>)</span>
+        </div>
         
         <?php if(empty($active_guests)): ?>
             <div class="row" style="color:#444; font-style:italic; font-size:0.7rem;">No guests online.</div>

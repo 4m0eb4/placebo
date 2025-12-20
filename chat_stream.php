@@ -264,13 +264,19 @@ while (true) {
              }
 
 if ($kill_stream) {
-                 // NUCLEAR OPTION: Static Crash Screen (No-JS Breakout)
-                 // We rely on the user clicking the target='_top' link to clear the full window.
+                 // NUCLEAR OPTION: CSS Override to instantly black out the frame
                  echo "<style>
-                    html,body{background:#000;height:100%;margin:0;overflow:hidden;font-family:monospace;}
+                    html, body { 
+                        background: #000 !important; height: 100% !important; width: 100% !important; 
+                        margin: 0 !important; overflow: hidden !important; 
+                    }
+                    /* Hide EVERYTHING else */
+                    .msg-row, .sys-msg, .chat-container { display: none !important; }
+                    
+                    /* Force Overlay */
                     .crash-overlay {
-                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                        background: #000; z-index: 99999;
+                        position: fixed !important; top: 0; left: 0; width: 100vw; height: 100vh;
+                        background: #000; z-index: 999999;
                         display: flex; flex-direction: column; align-items: center; justify-content: center;
                     }
                     .crash-box {
@@ -339,6 +345,32 @@ if ($kill_stream) {
                 $stmt_r->execute([$target]);
                 $row_r = $stmt_r->fetch();
                 if ($row_r) render_update($row_r, $my_rank, $emoji_presets);
+            }
+        }
+
+        // 4. LIVE PM ALERTS (Self-Cleaning Overlay)
+        static $prev_alert_id = null;
+        
+        if ($heartbeat % 5 === 0) {
+            if ($prev_alert_id) {
+                echo "<style>#{$prev_alert_id} { display: none !important; }</style>";
+                $prev_alert_id = null;
+            }
+
+            $chk_pm = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND is_read = 0");
+            $chk_pm->execute([$_SESSION['user_id']]);
+            $unread = $chk_pm->fetchColumn();
+
+            if ($unread > 0) {
+                $new_id = "pm_alert_" . time();
+                $prev_alert_id = $new_id;
+                
+                echo "<div id='$new_id' class='stream-alert-box'>
+                        <a href='pm.php' target='_top'>
+                           [ ! ] $unread ENCRYPTED SIGNAL(S)<br>
+                           <span style='font-size:0.7rem; font-weight:normal;'>CLICK TO DECRYPT</span>
+                        </a>
+                      </div>";
             }
         }
 

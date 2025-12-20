@@ -21,60 +21,75 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
     if (!$reg_enabled) {
         $error = "REGISTRATION IS DISABLED.";
     } else {
+        
+        // --- STEP 1: VALIDATE INPUT ---
         if (isset($_POST['action_check'])) {
             if ($_POST['password'] !== $_POST['password_confirm']) $error = "Passwords do not match.";
             elseif (strlen($_POST['password']) < 12) $error = "Password too short (min 12).";
             elseif (strlen($_POST['username']) > 20) $error = "Username exceeds 20 character limit.";
-            // EXPANDED WHITELIST: Alphanumeric + Safe Symbols (No spaces, no HTML chars)
-            // Allowed: - _ . ! ? $ * ( ) [ ]
-// EXPANDED WHITELIST: Alphanumeric + Safe Symbols
+            // EXPANDED WHITELIST: Alphanumeric + Safe Symbols
             elseif (!preg_match('/^[a-zA-Z0-9_\-\.\!\?\$\*\(\)\[\]]+$/', $_POST['username'])) {
                 $error = "Invalid Username. Allowed: A-Z 0-9 - _ . ! ? $ * ( ) [ ]";
             }
-            // BANNED WORDS CHECK
-            elseif (preg_match('/(admin|system|root|mod|support|staff|placebo|server|host)/i', $_POST['username'])) {
-                $error = "Username contains restricted keywords.";
-            }
             else {
-                // --- PGP CHECK ---
-                $pgp_valid = false;
-                $clean_fing = strtoupper(str_replace([' ', '0x'], '', $_POST['fingerprint']));
-
-                if (class_exists('gnupg')) {
-                    try {
-                        putenv("GNUPGHOME=/tmp");
-                        $gpg = new gnupg();
-                        $gpg->seterrormode(gnupg::ERROR_EXCEPTION);
-                        $info = $gpg->import($_POST['pgp_key']);
-                        
-                        if (isset($info['fingerprint'])) {
-                            $imported_fing = strtoupper($info['fingerprint']);
-                            $len = strlen($clean_fing);
-                            if ($len > 0 && substr($imported_fing, -$len) === $clean_fing) $pgp_valid = true;
-                            else $error = "PGP Mismatch: Key does not match Fingerprint.";
-                        } else $error = "Invalid PGP Key.";
-                    } catch (Exception $e) { $error = "PGP Error. Check server logs."; }
-                } else {
-                     if (strpos($_POST['pgp_key'], 'BEGIN PGP PUBLIC KEY BLOCK') !== false) $pgp_valid = true; 
-                     else $error = "System Error: php-gnupg missing.";
+                // BANNED WORDS CHECK (DYNAMIC)
+                $is_banned = false;
+                // Fetch blacklist from settings
+                $stmt_bl = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'blacklist_usernames'");
+                $bl_str = $stmt_bl->fetchColumn() ?: 'admin,root,system,mod,support';
+                $banned_terms = explode(',', $bl_str);
+                
+                foreach ($banned_terms as $term) {
+                    $term = trim($term);
+                    if ($term !== '' && stripos($_POST['username'], $term) !== false) {
+                        $is_banned = true; 
+                        break;
+                    }
                 }
 
-                if ($pgp_valid && !$error) {
-                    $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
-                    $stmt->execute([$_POST['username']]);
-                    if ($stmt->fetch()) $error = "Username taken.";
-                    else {
-                        $state = 'CAPTCHA';
-                        $_SESSION['reg_data'] = $_POST;
-                        $_SESSION['grid_seed'] = time();
-                        $_SESSION['captcha_time'] = time();
-                        // FIX: Ensure 5 arguments are passed here
-                        $_SESSION['captcha_req'] = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+                if ($is_banned) {
+                    $error = "Username contains restricted keywords.";
+                } else {
+                    // --- PGP CHECK ---
+                    $pgp_valid = false;
+                    $clean_fing = strtoupper(str_replace([' ', '0x'], '', $_POST['fingerprint']));
+
+                    if (class_exists('gnupg')) {
+                        try {
+                            putenv("GNUPGHOME=/tmp");
+                            $gpg = new gnupg();
+                            $gpg->seterrormode(gnupg::ERROR_EXCEPTION);
+                            $info = $gpg->import($_POST['pgp_key']);
+                            
+                            if (isset($info['fingerprint'])) {
+                                $imported_fing = strtoupper($info['fingerprint']);
+                                $len = strlen($clean_fing);
+                                if ($len > 0 && substr($imported_fing, -$len) === $clean_fing) $pgp_valid = true;
+                                else $error = "PGP Mismatch: Key does not match Fingerprint.";
+                            } else $error = "Invalid PGP Key.";
+                        } catch (Exception $e) { $error = "PGP Error. Check server logs."; }
+                    } else {
+                         if (strpos($_POST['pgp_key'], 'BEGIN PGP PUBLIC KEY BLOCK') !== false) $pgp_valid = true; 
+                         else $error = "System Error: php-gnupg missing.";
+                    }
+
+                    if ($pgp_valid && !$error) {
+                        $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+                        $stmt->execute([$_POST['username']]);
+                        if ($stmt->fetch()) $error = "Username taken.";
+                        else {
+                            $state = 'CAPTCHA';
+                            $_SESSION['reg_data'] = $_POST;
+                            $_SESSION['grid_seed'] = time();
+                            $_SESSION['captcha_time'] = time();
+                            $_SESSION['captcha_req'] = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+                        }
                     }
                 }
             }
         }
 
+        // --- STEP 2: REGISTER ---
         if (isset($_POST['action_register'])) {
             $state = 'CAPTCHA';
             if ((time() - $_SESSION['captcha_time']) > $timer_register) {
@@ -107,7 +122,6 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
                 if($fail) {
                     $error="Pattern Failed. New Grid.";
                     $_SESSION['grid_seed']=time(); $_SESSION['captcha_time']=time();
-                    // FIX: CRITICAL FIX - Added $active_min, $active_max
                     $_SESSION['captcha_req']=get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
                 } else {
                     $d = $_SESSION['reg_data'];
@@ -116,8 +130,21 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
                     try {
                         $stmt = $pdo->prepare("INSERT INTO users (username, password_hash, pgp_public_key, pgp_fingerprint) VALUES (?, ?, ?, ?)");
                         $stmt->execute([$d['username'], $hash, $d['pgp_key'], $d['fingerprint']]);
-                        header("Location: login.php"); 
+                        
+                        // SUCCESS SCREEN
+                        echo "<!DOCTYPE html><html><head><title>Identity Confirmed</title><link rel='stylesheet' href='style.css'></head>
+                        <body style='background:#000; display:flex; align-items:center; justify-content:center; height:100vh;'>
+                            <div class='login-wrapper' style='text-align:center; padding:40px; border:2px solid #6a9c6a;'>
+                                <h1 style='color:#6a9c6a; font-family:monospace; margin-bottom:10px;'>IDENTITY CONFIRMED</h1>
+                                <p style='color:#ccc; margin-bottom:30px; font-family:monospace;'>User node created successfully.</p>
+                                <div style='background:#111; border:1px solid #333; padding:10px; margin-bottom:30px; color:#888; font-size:0.8rem;'>
+                                    FP: ".htmlspecialchars($d['fingerprint'])."
+                                </div>
+                                <a href='login.php' class='btn-primary' style='text-decoration:none; display:inline-block;'>PROCEED TO LOGIN</a>
+                            </div>
+                        </body></html>";
                         exit;
+
                     } catch (PDOException $e) {
                         if ($e->getCode() == 23000) { 
                             $error = "Error: Username already exists."; 

@@ -6,11 +6,18 @@ require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['user_id'])) die("ACCESS DENIED");
 if (isset($_SESSION['is_guest']) && $_SESSION['is_guest'] === true) die("GUESTS CANNOT INVITE");
 
-// --- STRICT RANK CHECK ---
-// Only Rank 5 (VIP) and above can generate invites
-if (($_SESSION['rank'] ?? 0) < 5) {
+// --- DYNAMIC RANK CHECK ---
+// Fetch min rank from settings (Default: 5)
+$req_rank = 5;
+try {
+    $stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'invite_min_rank'");
+    $val = $stmt->fetchColumn();
+    if ($val !== false) $req_rank = (int)$val;
+} catch (Exception $e) {}
+
+if (($_SESSION['rank'] ?? 0) < $req_rank) {
     die("<html><body style='background:#000;color:#e06c75;font-family:monospace;display:flex;justify-content:center;align-items:center;height:100vh;'>
-        INSUFFICIENT CLEARANCE (LEVEL 5 REQUIRED)
+        INSUFFICIENT CLEARANCE (LEVEL $req_rank REQUIRED)
     </body></html>");
 }
 

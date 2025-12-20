@@ -1,56 +1,54 @@
 <?php
-// terminated.php - The Final Landing Page
 session_start();
-$_SESSION = array();
+// 1. Nuke the Session
+$_SESSION = [];
 if (ini_get("session.use_cookies")) {
     $params = session_get_cookie_params();
-    setcookie(session_name(), '', time() - 42000, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
+    setcookie(session_name(), '', time() - 42000,
+        $params["path"], $params["domain"],
+        $params["secure"], $params["httponly"]
+    );
 }
 session_destroy();
 ?>
 <!DOCTYPE html>
 <html>
 <head>
-    <title>DISCONNECTED</title>
+    <title>TERMINATED</title>
     <style>
-        body { 
-            background-color: #000; 
-            color: #444; 
-            font-family: monospace; 
-            display: flex; 
-            flex-direction: column;
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            margin: 0; 
+        html, body {
+            background-color: #000;
+            height: 100%;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: monospace;
             overflow: hidden;
+            cursor: not-allowed;
         }
-        .term-box { 
-            border: 1px solid #333; 
-            padding: 40px; 
-            background: #050505; 
+        .message {
+            color: #e06c75;
             text-align: center;
-            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            animation: flicker 2s infinite;
         }
-        h1 { font-size: 1.5rem; margin: 0 0 10px 0; color: #666; letter-spacing: 2px; }
-        p { margin-bottom: 30px; font-size: 0.8rem; }
+        h1 { font-size: 3rem; margin: 0; letter-spacing: 5px; }
+        p { color: #555; font-size: 0.8rem; margin-top: 10px; }
         
-        a.home-btn { 
-            color: #888; 
-            border: 1px solid #333; 
-            padding: 10px 20px; 
-            text-decoration: none; 
-            font-size: 0.7rem;
-            transition: all 0.2s;
+        @keyframes flicker {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            52% { opacity: 0.2; }
+            54% { opacity: 0.8; }
+            100% { opacity: 1; }
         }
-        a.home-btn:hover { color: #fff; border-color: #fff; }
     </style>
 </head>
 <body>
-    <div class="term-box">
-        <h1>DISCONNECTED</h1>
-        <p>SECURE SESSION ENDED</p>
-        <a href="index.php" class="home-btn">RETURN TO LOGIN</a>
+    <div class="message">
+        <h1>SIGNAL LOST</h1>
+        <p>CONNECTION TERMINATED BY HOST</p>
+        <p style="color:#222; margin-top:50px;">NO CARRIER</p>
     </div>
 </body>
 </html>
