@@ -60,19 +60,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-family: monospace;
             overflow: hidden;
         }
+        /* COMPACT STYLE FIX */
         .token-box { 
             background: #000; border: 1px dashed #6a9c6a; 
-            color: #6a9c6a; padding: 10px; font-size: 1.4rem; 
-            margin: 10px 0; letter-spacing: 2px; user-select: all;
-            word-break: break-all;
+            color: #6a9c6a; padding: 4px; font-size: 0.9rem; 
+            margin: 5px 0; letter-spacing: 1px; user-select: all;
+            font-weight: bold; font-family: monospace;
         }
         input[type="number"] { 
             background: #000; color: #fff; border: 1px solid #333; 
-            padding: 5px; width: 50px; text-align: center; outline: none;
-            font-family: monospace; font-size: 0.8rem;
+            padding: 2px; width: 40px; text-align: center; outline: none;
+            font-family: monospace; font-size: 0.7rem; height: 20px;
         }
-        p { margin: 5px 0 10px 0; }
-        .btn-primary { padding: 8px 15px !important; font-size: 0.7rem !important; }
+        p { margin: 2px 0 5px 0; font-size: 0.65rem !important; }
+        .btn-primary { padding: 4px 8px !important; font-size: 0.65rem !important; width: auto !important; }
+        label { font-size: 0.65rem !important; }
     </style>
 </head>
 <body>

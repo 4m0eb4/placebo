@@ -202,10 +202,13 @@ try {
                     <?php endif; ?>
 
                     <?php if($my_rank >= 9 && $u['rank'] < 9): ?>
-                        <form action="admin_exec.php" method="POST" style="display:inline; margin:0;">
+                        <form action="admin_exec.php" method="POST" style="display:flex; align-items:center; gap:3px; margin:0;">
                             <input type="hidden" name="target_user_id" value="<?= $u['id'] ?>">
                             <button type="submit" name="action_kick" class="btn btn-kill" title="Kick">K</button>
-                            <button type="submit" name="action_ban" class="btn btn-kill" title="Ban" onclick="return confirm('BAN USER?');">B</button>
+                            <label style="font-size:0.5rem; color:#555; display:flex; align-items:center; margin-left:3px;">
+                                <input type="checkbox" name="confirm" required style="margin:0 2px;">?
+                            </label>
+                            <button type="submit" name="action_ban" class="btn btn-kill" title="Ban">B</button>
                         </form>
                     <?php endif; ?>
                 </div>

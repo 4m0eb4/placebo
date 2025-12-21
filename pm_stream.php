@@ -1,5 +1,5 @@
 <?php
-// pm_stream.php - Streaming Engine for PMs
+// pm_stream.php - Streaming Engine for PMs (No-JS / Tor Safe)
 @ini_set('zlib.output_compression', 0);
 @ini_set('implicit_flush', 1);
 while (ob_get_level()) ob_end_clean();
@@ -7,9 +7,12 @@ set_time_limit(0);
 
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-cache');
+header('X-Accel-Buffering: no'); // Nginx specific: Disable buffering
 session_start();
 require 'db_config.php';
 require 'bbcode.php';
+
+// KEY FIX: Close session lock immediately so other scripts (input) can run
 session_write_close();
 
 if (!isset($_SESSION['fully_authenticated']) || !isset($_GET['to'])) die();
@@ -60,7 +63,6 @@ function render_pm($row, $my_id, $target_name) {
         $actions = "<a href='$del_link' target='pm_input' style='color:#444; text-decoration:none; margin-left:10px; font-weight:bold;' title='Delete'>[x]</a>";
     }
 
-    // MATCHING YOUR ORIGINAL STYLE STRUCTURE
     echo "<div id='$dom_id' class='pm-msg $cls'>
             <div class='pm-header'>
                 <span>$header_name | $time</span>
@@ -81,13 +83,17 @@ function render_pm($row, $my_id, $target_name) {
             background: transparent !important; 
             margin: 0; padding: 0; 
             min-height: 100%; 
-            overflow-y: scroll; /* Force scrollbar */
+            /* Force scrollbar to be visible */
+            overflow-y: scroll; 
         }
         
-        /* Scroll container - REVERSED for Newest at Top */
+        /* NO-JS SCROLL STRATEGY: 
+           flex-direction: column-reverse puts the LAST DOM element (newest message) at the TOP.
+           This means as new messages stream in, they appear at the top of the viewport
+           without needing JS to scrollIntoView().
+        */
         .stream-wrapper { 
             min-height: 100%; 
-            /* FIXED: Extra padding to ensure top/bottom messages aren't cut off */
             padding: 50px 20px; 
             display: flex; 
             flex-direction: column-reverse; 
@@ -103,6 +109,14 @@ function render_pm($row, $my_id, $target_name) {
             border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 3px; 
             display: flex; justify-content: space-between;
         }
+
+        /* WIPE NOTIFICATION */
+        .sys-wipe {
+            background: #220505; color: #e06c75; border: 1px dashed #e06c75;
+            padding: 15px; text-align: center; margin-bottom: 20px; width: 100%;
+        }
+        .sys-wipe a { color: #fff; font-weight: bold; text-decoration: underline; }
+
         @keyframes pulse-red { 0% { opacity:1; } 50% { opacity:0.7; } 100% { opacity:1; } }
     </style>
 </head>
@@ -110,6 +124,8 @@ function render_pm($row, $my_id, $target_name) {
     <div id="msg-container" class="stream-wrapper">
     <?php
     // 1. Initial Load
+    // We order by ASC in SQL so Oldest is first, Newest is last.
+    // CSS column-reverse flips this so Newest (Last) is at the Top.
     $stmt = $pdo->prepare("SELECT * FROM (SELECT * FROM private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY id DESC LIMIT 50) sub ORDER BY id ASC");
     $stmt->execute([$my_id, $target_id, $target_id, $my_id]);
     $msgs = $stmt->fetchAll();
@@ -122,24 +138,27 @@ function render_pm($row, $my_id, $target_name) {
     // Mark Read
     $pdo->prepare("UPDATE private_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ?")->execute([$target_id, $my_id]);
     
-    // No JS Scroll needed. Column-reverse puts the focus at the top naturally.
     flush();
 
     // 2. Stream Loop
     while(true) {
-        // Check if conversation deleted (Burn detection)
-        // If we have a last_id but the message no longer exists, wipe logic
+        
+        // --- CHECK IF WIPED (Burn Logic) ---
         if ($last_id > 0) {
             $chk = $pdo->prepare("SELECT id FROM private_messages WHERE id = ?");
             $chk->execute([$last_id]);
             if (!$chk->fetch()) {
-                // DB cleared
-                echo "<script>location.reload();</script>";
-                exit;
+                // DB cleared - Show Manual Reconnect Link (NO JS RELOAD)
+                echo "<div class='sys-wipe'>
+                        <strong>[ SYSTEM NOTICE ]</strong><br>
+                        CONVERSATION HISTORY INCINERATED.<br><br>
+                        <a href='pm_stream.php?to=$target_id'>[ RE-ESTABLISH CONNECTION ]</a>
+                      </div>";
+                exit; // Stop stream
             }
         }
 
-        // Check for new messages
+        // --- CHECK NEW MESSAGES ---
         $stmt = $pdo->prepare("SELECT * FROM private_messages WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) AND id > ? ORDER BY id ASC");
         $stmt->execute([$my_id, $target_id, $target_id, $my_id, $last_id]);
         $new = $stmt->fetchAll();
@@ -152,11 +171,14 @@ function render_pm($row, $my_id, $target_name) {
                 }
                 render_pm($m, $my_id, $t_name);
             }
-            echo '<script>window.scrollTo(0, document.body.scrollHeight);</script>';
+            // NO JS SCROLL NEEDED: CSS column-reverse handles visual order.
         }
 
-        echo " "; flush();
+        echo " "; // Filler byte to force flush
+        flush();
         sleep(1);
+        
+        // Break loop if client disconnects
         if (connection_aborted()) break;
     }
     ?>

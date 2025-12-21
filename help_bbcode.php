@@ -1,5 +1,7 @@
 <?php
 session_start();
+// FIX: Close session write to prevent blocking chat_stream (long-polling)
+session_write_close();
 require 'bbcode.php'; 
 ?>
 <!DOCTYPE html>

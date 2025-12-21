@@ -57,10 +57,10 @@ if ($target_id) {
         }
     </style>
 </head>
-<body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="display:block;">
+<body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="margin:0; padding:0; height:100vh; overflow:hidden; display:flex; flex-direction:column;">
 
-<div class="main-container" style="width: 95%; max-width: 1200px; margin: 0 auto;">
-    <div class="nav-bar" style="background: #161616; border-bottom: 1px solid #333; padding: 15px 20px; display:flex; justify-content:space-between; align-items:center;">
+<div class="main-container" style="width: 100%; height:100%; display:flex; flex-direction:column;">
+    <div class="nav-bar" style="flex: 0 0 auto; background: #161616; border-bottom: 1px solid #333; padding: 10px 20px; display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap: 20px;">
             <a href="index.php" class="term-logo">Placebo</a>
             <span style="color:#444; font-size:0.75rem; font-family:monospace;">// Secure_Comms</span>
@@ -75,7 +75,7 @@ if ($target_id) {
         </div>
     </div>
 
-    <div class="content-area" style="padding: 0; background: #0d0d0d; min-height: 80vh; display:flex; flex-direction:column;">
+    <div class="content-area" style="flex: 1; background: #0d0d0d; display:flex; flex-direction:column; min-height:0; overflow:hidden;">
         
         <?php if($target_id): ?>
             <div style="padding:15px; border-bottom:1px solid #333; background:#111; display:flex; justify-content:space-between; align-items:center;">

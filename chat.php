@@ -52,7 +52,7 @@ $rank = $_SESSION['rank'] ?? 0;
 
     <input type="checkbox" id="invite-modal-toggle" class="modal-toggle">
     <div class="modal-overlay">
-        <div class="modal-box">
+        <div class="modal-box" style="height: 250px; max-width: 350px;">
             <div class="modal-header">
                 <span>INVITE SYSTEM</span>
                 <label for="invite-modal-toggle" class="modal-close">[ CLOSE ]</label>

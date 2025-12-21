@@ -1,8 +1,7 @@
 <?php
-// chat_stream.php (V9 - Stable Connection)
+// chat_stream.php (V10 - No-JS / Separate Alerts)
 @ini_set('zlib.output_compression', 0);
 @ini_set('implicit_flush', 1);
-// Safely clear all buffers to prevent connection drops
 while (ob_get_level()) ob_end_clean();
 set_time_limit(0);
 
@@ -14,6 +13,7 @@ header('Connection: keep-alive');
 session_start();
 require 'db_config.php';
 require 'bbcode.php';
+// KEY: Release session lock immediately
 session_write_close();
 
 if (!isset($_SESSION['fully_authenticated'])) die();
@@ -27,24 +27,22 @@ $last_sig_id = $stmt_sig->fetchColumn() ?? 0;
 
 // --- LOAD EMOJI PRESETS ---
 global $pdo;
-$emoji_presets = ['❤️','🔥','👍','💀']; // Default Fallback
+$emoji_presets = ['❤️','🔥','👍','💀']; 
 try {
     $s_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='chat_emoji_presets'");
     $raw = $s_stmt->fetchColumn();
     if ($raw) $emoji_presets = explode(',', $raw);
 } catch (Exception $e) {}
 
-// HELPER: Vibrant Color Generator (Saturated)
+// HELPER: Vibrant Color Generator
 function to_pastel($hex) {
     $hex = ltrim($hex, '#');
     if(strlen($hex)==3) $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
     
-    // Parse (Fixed Green Index)
     $r = hexdec(substr($hex,0,2));
     $g = hexdec(substr($hex,2,2)); 
     $b = hexdec(substr($hex,4,2));
     
-    // Mix: 80% Color + 20% White (More Saturated)
     $r = (int)($r * 0.8 + 255 * 0.2);
     $g = (int)($g * 0.8 + 255 * 0.2);
     $b = (int)($b * 0.8 + 255 * 0.2);
@@ -61,6 +59,7 @@ function render_update($row, $rank, $presets) {
     $is_system = ($row['msg_type'] ?? 'normal') === 'system';
     $display_mode = $is_system ? 'block' : 'flex';
 
+    // Hide duplicates using CSS
     echo "<style>
         div[id='{$base_id}'] { display: none !important; }
         div[id^='{$base_id}_'] { display: none !important; }
@@ -172,33 +171,23 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
             overflow-y: auto; /* Enable native scrollbar */
             font-family: monospace; 
             display: flex; 
-            flex-direction: column-reverse; /* Newest at top */
+            /* REVERSE: Newest items (Higher Order/ID) go to the TOP */
+            flex-direction: column-reverse; 
             justify-content: flex-end;      
         }
-        body { font-size: 0.75rem; } /* Global Size Reduction */
+        body { font-size: 0.75rem; } 
         
         .msg-row { 
             width: 100%; padding: 2px 0; border-bottom: 1px solid #111; 
-            animation: slideDown 0.2s ease-out; display: flex; gap: 8px; 
-            align-items: flex-start; flex-shrink: 0; 
+            display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0; 
         }
         .sys-msg { padding: 5px; margin: 2px 0; font-size: 0.7rem; }
 
-        /* Col 1: Time (Aligned with Actions) */
         .col-time { width: 35px; flex-shrink: 0; color: #444; text-align: right; margin-top: 1px; }
-        
-        /* Col 2: Username */
         .col-user { flex-shrink: 0; font-weight: bold; margin-top: 1px; }
-
-        /* Col 3: Message (Wraps BEFORE hitting Actions) */
-        .col-text { 
-            flex-grow: 1; word-break: break-word; overflow-wrap: break-word; 
-            line-height: 1.3; color: #ccc; min-width: 0;
-        }
-
-        /* Col 4: Actions (Fixed Right) */
+        .col-text { flex-grow: 1; word-break: break-word; overflow-wrap: break-word; line-height: 1.3; color: #ccc; min-width: 0; }
         .col-act { flex-shrink: 0; white-space: nowrap; margin-left: 5px; }
-        .msg-actions { float: right; margin-left: 10px; font-size: 0.7rem; display: inline-flex; gap: 8px; align-items: center; }
+
         .action-link { color: #555; text-decoration: none; cursor: pointer; }
         .action-link:hover { color: #6a9c6a; }
         .del-btn { color: #444; font-weight: bold; text-decoration: none; }
@@ -206,7 +195,6 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
 
         details.react-box { display: inline-block; position: relative; }
         details.react-box summary { list-style: none; cursor: pointer; color: #555; }
-        details.react-box summary::-webkit-details-marker { display: none; }
         details.react-box summary:hover { color: #e5c07b; }
         
         .react-popup { 
@@ -217,14 +205,13 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
         }
         .react-presets a { filter: grayscale(100%); transition: 0.2s; }
         .react-presets a:hover { filter: grayscale(0%); transform: scale(1.2); }
-
-        @keyframes slideDown { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
     </style>
 </head>
 <body>
 <?php
 try {
     // --- INITIAL HISTORY LOAD ---
+    // LIMIT 50 recent messages
     $stmt = $pdo->query("SELECT * FROM (SELECT * FROM chat_messages ORDER BY id DESC LIMIT 50) sub ORDER BY id ASC");
     $history = $stmt->fetchAll();
     foreach($history as $msg) {
@@ -233,14 +220,21 @@ try {
     }
     flush();
 
-    // --- MAIN STREAM LOOP ---
+    // --- STATE TRACKING ---
     $heartbeat = 0; 
     $last_active_update = 0;
+    
+    // Notification State
+    $last_pm_count = -1;
+    $last_pm_alert_id = null;
+    $last_link_count = -1;
+    $last_link_alert_id = null;
 
-while (true) {
+    while (true) {
         $heartbeat++;
         $now = time();
-// 0a. UPDATE PRESENCE (Every 60s)
+
+        // 0. UPDATE PRESENCE (Every 60s)
         if ($now - $last_active_update >= 60) {
             try {
                 if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
@@ -252,15 +246,13 @@ while (true) {
             $last_active_update = $now;
         }
 
-        // --- 0b. INSTANT SECURITY HEARTBEAT ---
+        // 1. INSTANT SECURITY HEARTBEAT
         if ($heartbeat % 3 === 0) { 
              $kill_stream = false;
-
              if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
                  $chk = $pdo->prepare("SELECT status FROM guest_tokens WHERE id = ?");
                  $chk->execute([$_SESSION['guest_token_id'] ?? 0]);
-                 $st = $chk->fetchColumn();
-                 if ($st !== 'active') $kill_stream = true;
+                 if ($chk->fetchColumn() !== 'active') $kill_stream = true;
              } else {
                  $chk = $pdo->prepare("SELECT is_banned, force_logout FROM users WHERE id = ?");
                  $chk->execute([$_SESSION['user_id'] ?? 0]);
@@ -268,60 +260,21 @@ while (true) {
                  if ($st && ($st['is_banned'] == 1 || $st['force_logout'] == 1)) $kill_stream = true;
              }
 
-if ($kill_stream) {
-                 // NUCLEAR OPTION: CSS Override to instantly black out the frame
-                 echo "<style>
-                    html, body { 
-                        background: #000 !important; height: 100% !important; width: 100% !important; 
-                        margin: 0 !important; overflow: hidden !important; 
-                    }
-                    /* Hide EVERYTHING else */
-                    .msg-row, .sys-msg, .chat-container { display: none !important; }
-                    
-                    /* Force Overlay */
-                    .crash-overlay {
-                        position: fixed !important; top: 0; left: 0; width: 100vw; height: 100vh;
-                        background: #000; z-index: 999999;
-                        display: flex; flex-direction: column; align-items: center; justify-content: center;
-                    }
-                    .crash-box {
-                        text-align: center; border: 2px solid #e06c75; padding: 30px; background: #1a0505;
-                        width: 80%; max-width: 400px;
-                        box-shadow: 0 0 50px rgba(224, 108, 117, 0.2);
-                    }
-                    h1 { color: #e06c75; margin: 0 0 15px 0; font-size: 1.5rem; text-transform: uppercase; animation: blink 0.5s infinite alternate; }
-                    p { color: #888; font-size: 0.8rem; margin-bottom: 25px; }
-                    a.btn { 
-                        display: block; border: 1px solid #e06c75; color: #fff; padding: 15px; 
-                        text-decoration: none; background: #e06c75; font-weight: bold; 
-                        letter-spacing: 2px; cursor: pointer; transition: all 0.2s;
-                    }
-                    a.btn:hover { background: #fff; color: #000; border-color: #fff; }
-                    @keyframes blink { from { opacity: 1; } to { opacity: 0.3; } }
-                    
-                    /* Hide underlying stream */
-                    .msg-row, .sys-msg { display: none !important; }
-                 </style>";
-                 
-                 echo "<div class='crash-overlay'>
-                        <div class='crash-box'>
-                            <h1>CONNECTION SEVERED</h1>
-                            <p>UPLINK TERMINATED BY HOST</p>
-                            <a href='terminated.php' target='_top' class='btn'>[ EXIT SESSION ]</a>
-                        </div>
+             if ($kill_stream) {
+                 echo "<style>html, body { background: #000 !important; } .msg-row, .sys-msg { display: none !important; }</style>";
+                 echo "<div style='position:fixed; top:0; left:0; width:100%; height:100%; background:#000; display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:99999;'>
+                        <h1 style='color:#e06c75;'>TERMINATED</h1>
+                        <a href='terminated.php' target='_top' style='color:#fff; border:1px solid #e06c75; padding:10px;'>[ EXIT ]</a>
                        </div>";
-                 
-                 echo str_repeat(" ", 1024); 
-                 flush();
-                 die();
+                 echo str_repeat(" ", 1024); flush(); die();
              }
         }
 
-        // 1. Reset Check
+        // 2. Reset Check
         $check_reset = $pdo->query("SELECT MAX(id) FROM chat_messages")->fetchColumn();
         if ($check_reset < $last_id) $last_id = 0;
 
-        // 2. New Messages
+        // 3. New Messages
         $stmt = $pdo->prepare("SELECT * FROM chat_messages WHERE id > ? ORDER BY id ASC");
         $stmt->execute([$last_id]);
         $new = $stmt->fetchAll();
@@ -329,8 +282,9 @@ if ($kill_stream) {
             $last_id = $msg['id'];
             render_update($msg, $my_rank, $emoji_presets);
         }
+        // NOTE: No JS Scroll here. CSS 'column-reverse' handles it.
 
-        // 3. Signals
+        // 4. Signals
         $s_stmt = $pdo->prepare("SELECT * FROM chat_signals WHERE id > ? ORDER BY id ASC");
         $s_stmt->execute([$last_sig_id]);
         $signals = $s_stmt->fetchAll();
@@ -352,80 +306,87 @@ if ($kill_stream) {
                 if ($row_r) render_update($row_r, $my_rank, $emoji_presets);
             }
         }
-// 4. UNIFIED ALERTS (PMs + Admin Links)
-        static $last_hash = null;       
-        static $current_alert_id = null;
-        
+
+        // 5. SEPARATE NOTIFICATIONS (PMs & Links)
         if ($heartbeat % 5 === 0) {
-            // Check PMs
+            
+            // --- A. CHECK PRIVATE MESSAGES ---
             $chk_pm = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND is_read = 0");
             $chk_pm->execute([$_SESSION['user_id']]);
             $pm_count = (int)$chk_pm->fetchColumn();
 
-            // Check Links (Admins Only)
-            $link_count = 0;
-            if ($my_rank >= 9) {
-                $link_count = (int)$pdo->query("SELECT COUNT(*) FROM shared_links WHERE status='pending'")->fetchColumn();
-            }
-
-            // Create State Hash
-            $current_hash = $pm_count . "_" . $link_count;
-
-            if ($current_hash !== $last_hash) {
-                // 1. Hide previous alert if exists
-                if ($current_alert_id) {
-                    echo "<style>#{$current_alert_id} { display: none !important; }</style>";
-                    $current_alert_id = null;
-                }
-
-                // 2. Generate New Alert if needed
-                if ($pm_count > 0 || $link_count > 0) {
-                    $new_id = "alert_" . time();
+            if ($pm_count !== $last_pm_count) {
+                // Clear old
+                if ($last_pm_alert_id) { echo "<style>#{$last_pm_alert_id} { display: none !important; }</style>"; $last_pm_alert_id = null; }
+                
+                // Show New (Bottom 0px)
+                if ($pm_count > 0) {
+                    $new_id = "pm_alert_" . time();
                     $chk_id = "chk_" . $new_id;
-                    $current_alert_id = $new_id;
-
-                    // Build Message
-                    $parts = [];
-                    if ($pm_count > 0) $parts[] = "$pm_count PM(s)";
-                    if ($link_count > 0) $parts[] = "$link_count Link(s)";
-                    $msg_str = implode(" + ", $parts);
+                    $last_pm_alert_id = $new_id;
                     
-                    // Build Actions
-                    $actions = "";
-                    if ($pm_count > 0) $actions .= "<a href='pm.php' target='_blank'>[ INBOX ]</a> ";
-                    if ($link_count > 0) $actions .= "<a href='admin_dash.php?view=links' target='_blank'>[ REVIEW ]</a> ";
-
                     echo "
                     <style>
                         #$new_id {
                             position: fixed; bottom: 0; left: 0; width: 100%;
-                            background: var(--alert-bg, #1a1005); 
+                            background: var(--alert-bg, #1a0505); 
                             color: var(--alert-text, #e06c75); 
                             border-top: 1px dashed var(--alert-border, #e06c75); 
-                            padding: 8px 15px; 
-                            font-family: monospace; font-size: 0.7rem;
+                            padding: 8px 15px; font-family: monospace; font-size: 0.7rem;
                             display: flex; justify-content: space-between; align-items: center;
                             z-index: 99999; box-sizing: border-box;
                         }
                         #$new_id a, #$new_id label { color: inherit; text-decoration: none; font-weight: bold; cursor: pointer; margin-left: 10px; }
-                        #$new_id a:hover, #$new_id label:hover { text-decoration: underline; }
-                        
                         #$chk_id { display: none; }
                         #$chk_id:checked + #$new_id { display: none !important; }
                     </style>
-
                     <input type='checkbox' id='$chk_id'>
                     <div id='$new_id'>
-                        <span>[SIGNAL] <strong>$msg_str</strong> Pending.</span>
-                        <div>
-                            $actions
-                            <label for='$chk_id'>[ CLOSE ]</label>
-                        </div>
+                        <span>[MSG] <strong>$pm_count</strong> New Private Message(s).</span>
+                        <div><a href='pm.php' target='_blank'>[ OPEN INBOX ]</a><label for='$chk_id'>[ X ]</label></div>
                     </div>";
                 }
-                $last_hash = $current_hash;
+                $last_pm_count = $pm_count;
             }
-        } // End Heartbeat Check
+
+            // --- B. CHECK PENDING LINKS (Admins Only) ---
+            if ($my_rank >= 9) {
+                $link_count = (int)$pdo->query("SELECT COUNT(*) FROM shared_links WHERE status='pending'")->fetchColumn();
+                
+                if ($link_count !== $last_link_count) {
+                    // Clear old
+                    if ($last_link_alert_id) { echo "<style>#{$last_link_alert_id} { display: none !important; }</style>"; $last_link_alert_id = null; }
+                    
+                    // Show New (Bottom 36px to stack above PM alert)
+                    if ($link_count > 0) {
+                        $new_id = "lnk_alert_" . time();
+                        $chk_id = "chk_" . $new_id;
+                        $last_link_alert_id = $new_id;
+                        
+                        echo "
+                        <style>
+                            #$new_id {
+                                position: fixed; bottom: 0px; left: 0; width: 100%;
+                                background: #05101a; color: #56b6c2; 
+                                border-top: 1px dashed #56b6c2; 
+                                padding: 8px 15px; font-family: monospace; font-size: 0.7rem;
+                                display: flex; justify-content: space-between; align-items: center;
+                                z-index: 99998; box-sizing: border-box;
+                            }
+                            #$new_id a, #$new_id label { color: inherit; text-decoration: none; font-weight: bold; cursor: pointer; margin-left: 10px; }
+                            #$chk_id { display: none; }
+                            #$chk_id:checked + #$new_id { display: none !important; }
+                        </style>
+                        <input type='checkbox' id='$chk_id'>
+                        <div id='$new_id'>
+                            <span>[MOD] <strong>$link_count</strong> Link(s) Awaiting Approval.</span>
+                            <div><a href='admin_dash.php?view=links' target='_blank'>[ REVIEW ]</a><label for='$chk_id'>[ X ]</label></div>
+                        </div>";
+                    }
+                    $last_link_count = $link_count;
+                }
+            }
+        } // End Notification Check
 
         echo " "; flush();
         sleep(1);

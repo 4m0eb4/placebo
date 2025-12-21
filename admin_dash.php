@@ -100,6 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'palette_json' => $_POST['palette'],
                 'site_theme' => $_POST['site_theme'],
                 'site_bg_url' => $bg_path,
+                'max_chat_history' => $_POST['max_history'] ?? 150,
                 'invite_min_rank' => $_POST['invite_min_rank'] ?? 5,
                 'registration_enabled' => isset($_POST['reg_enabled']) ? '1' : '0',
                 'registration_msg' => $_POST['reg_msg']
@@ -410,6 +411,10 @@ if ($tab === 'logs') {
 
             <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 20px 0 15px 0;">SITE CONTROLS</h3>
             <div class="input-group">
+                <label>MAX CHAT HISTORY (Pruning Limit)</label>
+                <input type="number" name="max_history" value="<?= $settings['max_chat_history'] ?? 150 ?>" min="10" style="width:100%; padding:10px;">
+            </div>
+            <div class="input-group">
                 <label>PGP Challenge Message</label>
                 <textarea name="pgp_msg" style="height: 60px;"><?= htmlspecialchars($settings['pgp_message'] ?? '') ?></textarea>
             </div>
@@ -496,16 +501,17 @@ if ($tab === 'logs') {
                 <td><a href="profile.php?id=<?= $u['id'] ?>" style="color: #e0e0e0;"><?= htmlspecialchars($u['username']) ?></a></td>
                 <td><span class="badge badge-<?= $u['rank'] ?>"><?= $u['rank'] ?></span></td>
                 <td><?= $u['created_at'] ?></td>
-                <td>
+                <td style="white-space: nowrap;">
                     <?php if($u['rank'] < 10): ?>
-                    <form method="POST" style="display:inline-flex; gap:5px;">
+                    <form method="POST" style="display:flex; align-items:center; gap:4px; margin:0;">
                         <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                        <input type="number" name="new_rank" value="<?= $u['rank'] ?>" style="width:50px; padding:5px; color:#fff; text-align:center;">
-                        <button type="submit" name="update_rank" class="badge" style="cursor:pointer; border:none;">SAVE</button>
-                        <label style="font-size:0.6rem; color:#e06c75;"><input type="checkbox" name="confirm_del" required> Confirm</label>
-                        <button type="submit" name="delete_user" class="badge" style="cursor:pointer; border:none; background:#e06c75;">DEL</button>
+                        <input type="number" name="new_rank" value="<?= $u['rank'] ?>" style="width:40px; padding:2px; color:#fff; text-align:center; height:20px; font-size:0.7rem;">
+                        <button type="submit" name="update_rank" class="badge" style="cursor:pointer; border:none; padding:3px 6px;">OK</button>
+                        <span style="color:#444;">|</span>
+                        <label style="font-size:0.6rem; color:#e06c75; display:flex; align-items:center; gap:2px;"><input type="checkbox" name="confirm_del" required> ?</label>
+                        <button type="submit" name="delete_user" class="badge" style="cursor:pointer; border:none; background:#e06c75; padding:3px 6px;">X</button>
                     </form>
-                    <?php else: ?><span>PROTECTED</span><?php endif; ?>
+                    <?php else: ?><span style="color:#555; font-size:0.6rem;">[ PROTECTED ]</span><?php endif; ?>
                 </td>
             </tr>
             <?php endforeach; ?>
