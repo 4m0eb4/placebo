@@ -1,5 +1,10 @@
 <?php
 session_start();
+// --- FIX: FORCE NO CACHE (Ensures comments show instantly) ---
+header("Cache-Control: no-cache, no-store, must-revalidate");
+header("Pragma: no-cache");
+header("Expires: 0");
+
 require 'db_config.php'; // Required for Database & Theme Loading
 require 'bbcode.php';    // Required for formatting
 
@@ -64,7 +69,7 @@ if ($post['min_rank'] > $my_rank) {
                 DATE: <?= $post['created_at'] ?>
             </div>
             
-            <div style="line-height: 1.6; color: var(--text-main); font-family: inherit; font-size: 0.9rem;">
+            <div style="line-height: 1.6; color: var(--text-main); font-family: inherit; font-size: 0.9rem; overflow-wrap: anywhere; word-break: break-word;">
                 <?= parse_bbcode($post['body']) ?>
             </div>
             

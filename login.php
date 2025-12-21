@@ -172,9 +172,11 @@ $current_req = $_SESSION['captcha_req'] ?? [];
         $o_stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE last_active > (NOW() - INTERVAL 15 MINUTE) AND is_banned = 0");
         $online_count = $o_stmt->fetchColumn();
     ?>
-    <div class="terminal-footer" style="display:flex; justify-content:space-between; color:#444;">
-        <span>SECURE_LOGIN_V3</span>
-        <span>ONLINE_NODES: <strong style="color:#6a9c6a;"><?= $online_count ?></strong></span>
-    </div>
-</div>
+<div class="terminal-footer">
+            <?php if(($settings['show_online_nodes'] ?? '1') === '1'): ?>
+            <div style="margin-top: 15px; font-size: 0.7rem; color: #444;">
+                Active Nodes: <span style="color: #6a9c6a;"><?= $online_count ?></span>
+            </div>
+            <?php endif; ?>
+        </div>
 </body></html>

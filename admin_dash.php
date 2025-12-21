@@ -101,6 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'site_theme' => $_POST['site_theme'],
                 'site_bg_url' => $bg_path,
                 'max_chat_history' => $_POST['max_history'] ?? 150,
+                'show_online_nodes' => isset($_POST['show_nodes']) ? '1' : '0',
                 'invite_min_rank' => $_POST['invite_min_rank'] ?? 5,
                 'registration_enabled' => isset($_POST['reg_enabled']) ? '1' : '0',
                 'registration_msg' => $_POST['reg_msg']
@@ -183,7 +184,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $upd = [
                 'chat_locked' => isset($_POST['chat_locked']) ? '1' : '0',
                 'chat_slow_mode' => (int)$_POST['chat_slow_mode'],
-                'chat_pinned_msg' => trim($_POST['chat_pinned_msg'])
+                'chat_pinned_msg' => trim($_POST['chat_pinned_msg']),
+                'chat_pin_style' => $_POST['chat_pin_style'] ?? 'INFO'
             ];
             foreach($upd as $k=>$v) {
                 $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
@@ -258,15 +260,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['manual_add_link'])) {
             $url = $_POST['new_url'];
             $title = $_POST['new_title'];
-            $pdo->prepare("INSERT INTO shared_links (url, title, posted_by, status) VALUES (?, ?, 'ADMIN', 'approved')")
-                ->execute([$url, $title]);
+            $cat_id = !empty($_POST['cat_id']) ? $_POST['cat_id'] : NULL;
+            $pdo->prepare("INSERT INTO shared_links (url, title, posted_by, status, category_id) VALUES (?, ?, 'ADMIN', 'approved', ?)")
+                ->execute([$url, $title, $cat_id]);
             $msg = "Link Added manually.";
         }
         
-        // EDIT EXISTING
+// EDIT EXISTING
         if (isset($_POST['update_link'])) {
-            $pdo->prepare("UPDATE shared_links SET title = ? WHERE id = ?")
-                ->execute([$_POST['edit_title'], $_POST['edit_id']]);
+            $cat_id = !empty($_POST['edit_cat']) ? $_POST['edit_cat'] : NULL;
+            $pdo->prepare("UPDATE shared_links SET title = ?, category_id = ? WHERE id = ?")
+                ->execute([$_POST['edit_title'], $cat_id, $_POST['edit_id']]);
             $msg = "Link Updated.";
         }
 
@@ -458,6 +462,14 @@ if ($tab === 'logs') {
             </div>
 
             <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 20px 0 15px 0;">SITE CONTROLS</h3>
+            
+            <div class="input-group">
+                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; color:#e5c07b; border:1px solid #333; padding:10px; background:#111;">
+                    <input type="checkbox" name="show_nodes" value="1" <?= ($settings['show_online_nodes']??'1')=='1' ? 'checked' : '' ?>>
+                    SHOW ONLINE NODES COUNT ON LOGIN
+                </label>
+            </div>
+
             <div class="input-group">
                 <label>MAX CHAT HISTORY (Pruning Limit)</label>
                 <input type="number" name="max_history" value="<?= $settings['max_chat_history'] ?? 150 ?>" min="10" style="width:100%; padding:10px;">
@@ -643,6 +655,18 @@ if ($tab === 'logs') {
                         <label>Pinned Notice (BBCode Allowed)</label>
                         <textarea name="chat_pinned_msg" style="height:60px;"><?= htmlspecialchars($settings['chat_pinned_msg'] ?? '') ?></textarea>
                     </div>
+                    
+                    <div class="input-group">
+                        <label>Notice Style</label>
+                        <select name="chat_pin_style" style="background:#000; color:#fff; border:1px solid #444; width:100%; padding:8px;">
+                            <option value="INFO" <?= ($settings['chat_pin_style']??'')=='INFO'?'selected':'' ?>>Blue [INFO]</option>
+                            <option value="WARN" <?= ($settings['chat_pin_style']??'')=='WARN'?'selected':'' ?>>Red [WARNING]</option>
+                            <option value="CRIT" <?= ($settings['chat_pin_style']??'')=='CRIT'?'selected':'' ?>>Purple [CRITICAL]</option>
+                            <option value="MAINT" <?= ($settings['chat_pin_style']??'')=='MAINT'?'selected':'' ?>>Gold [MAINTENANCE]</option>
+                            <option value="SUCCESS" <?= ($settings['chat_pin_style']??'')=='SUCCESS'?'selected':'' ?>>Green [SUCCESS]</option>
+                        </select>
+                    </div>
+
                     <button type="submit" name="save_chat_config" class="btn-primary" style="margin-top:5px;">APPLY CONFIG</button>
                 </div>
             </form>
@@ -781,7 +805,15 @@ if ($tab === 'logs') {
                 <td>
                     <input type="hidden" name="edit_id" value="<?= $l['id'] ?>">
                     <input type="text" name="edit_title" value="<?= htmlspecialchars($l['title'] ?? '') ?>" placeholder="No Title" style="width:100%; background:transparent; border:none; border-bottom:1px dashed #333; color:#d19a66; font-weight:bold; margin-bottom:2px;">
-                    <div style="font-size:0.7rem; color:#555; font-family:monospace;"><?= htmlspecialchars($l['url']) ?></div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <select name="edit_cat" style="background:#111; color:#888; border:1px solid #333; font-size:0.65rem; padding:2px; width:auto;">
+                            <option value="">[ Uncategorized ]</option>
+                            <?php foreach($cats as $c): ?>
+                                <option value="<?= $c['id'] ?>" <?= ($l['category_id'] == $c['id']) ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div style="font-size:0.7rem; color:#555; font-family:monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:300px;"><?= htmlspecialchars($l['url']) ?></div>
+                    </div>
                 </td>
                 <td style="vertical-align:middle;">
                     <div style="display:flex; gap:5px; align-items:center;">

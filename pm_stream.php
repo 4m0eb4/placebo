@@ -43,10 +43,11 @@ function render_pm($row, $my_id, $target_name) {
                     <span style='font-size:0.7rem;'>WAITING FOR PARTNER APPROVAL...</span>
                   </div>";
         } else {
-            // The button must be in the parent frame, so we just show the status here
-            echo "<div style='background:#220505; color:#e06c75; border:1px solid #e06c75; padding:10px; text-align:center; animation: pulse-red 2s infinite;'>
-                    <strong>⚠️ PARTNER REQUESTED HISTORY WIPE</strong><br>
-                    <span style='font-size:0.7rem;'>CONFIRM DELETION IN TOOLBAR ABOVE</span>
+            // The button is in the parent frame. We provide a helper link to refresh that frame.
+            echo "<div style='background:#220505; color:#e06c75; border:1px solid #e06c75; padding:15px; text-align:center; margin:10px 0;'>
+                    <strong style='font-size:0.9rem; display:block; margin-bottom:5px; animation: pulse-red 1s infinite;'>⚠️ PARTNER REQUESTED WIPE</strong>
+                    <div style='font-size:0.7rem; color:#aaa; margin-bottom:10px;'>ACTION REQUIRED IN TOOLBAR</div>
+                    <a href='pm_input.php?to={$_GET['to']}' target='pm_input' style='background:#e06c75; color:#000; padding:4px 8px; text-decoration:none; font-weight:bold; font-size:0.7rem;'>[ RELOAD TOOLBAR TO CONFIRM ]</a>
                   </div>";
         }
         echo "</div>";

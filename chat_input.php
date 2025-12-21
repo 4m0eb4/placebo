@@ -25,14 +25,15 @@ if (!isset($_SESSION['fully_authenticated'])) {
 // IF DEAD: Immediate Halt
 if ($kill) {
     echo "<style>
-        html, body { background: #000 !important; margin: 0; padding: 0; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        html, body { background: #000 !important; margin: 0; padding: 0; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; z-index: 99999; }
         .kill-msg { 
             color: #e06c75; font-family: monospace; font-weight: bold; text-decoration: none; 
-            border: 1px solid #e06c75; padding: 10px 20px; background: #1a0505; text-transform: uppercase;
+            border: 1px solid #e06c75; padding: 10px 20px; background: #1a0505; text-transform: uppercase; cursor: pointer;
         }
-        form, input, button { display: none !important; }
+        form, input, button, .info-bar { display: none !important; }
     </style>";
-    echo "<a href='terminated.php' target='_top' class='kill-msg'>🚫 SIGNAL LOST // EXIT</a>";
+    // Target _top breaks the iframe, sending the user to logout/index cleanly
+    echo "<a href='logout.php' target='_top' class='kill-msg'>🚫 SIGNAL LOST // EXIT</a>";
     exit;
 }
 
@@ -103,12 +104,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = parse_emojis($msg);
         
         // 3. LINK INTERCEPT
-        // Catches http/https links. 
+        // Catches http/https links AND raw .onion addresses (V2/V3).
         // BYPASS: Admins (Rank 9+) skip this and post directly.
         $is_admin = (isset($_SESSION['rank']) && $_SESSION['rank'] >= 9);
         
-        if (!$is_admin && preg_match('/(https?:\/\/[^\s]+)/i', $msg, $matches)) {
-            $url = $matches[1];
+        // Regex matches standard URLs OR .onion strings (16-56 lowercase/numbers)
+        if (!$is_admin && preg_match('/(https?:\/\/[^\s]+|[a-z2-7]{16,56}\.onion)/i', $msg, $matches)) {
+            $url = $matches[0];
+            
+            // Fix raw onion links by prepending http://
+            if (strpos($url, 'http') !== 0 && strpos($url, '.onion') !== false) {
+                $url = 'http://' . $url;
+            }
+
             try {
                 $stmt_l = $pdo->prepare("INSERT INTO shared_links (url, posted_by, status, original_message) VALUES (?, ?, 'pending', ?)");
                 $stmt_l->execute([$url, $_SESSION['username'], $msg]);
@@ -201,16 +209,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             [ CHAT LOCKED BY ADMIN ]
         </div>
     <?php else: ?>
+        
+        <?php if($is_reply): ?>
+            <div style="width:100%; background:#0d0d0d; border-bottom:1px solid #d19a66; border-left: 4px solid #d19a66; color:#d19a66; font-size:0.65rem; padding:4px 10px; font-family:monospace; font-weight:bold; box-sizing:border-box;">
+                >> REPLYING TO: <span style="color:#fff;"><?= htmlspecialchars($reply_user) ?></span>
+                <a href="chat_input.php" style="float:right; color:#e06c75; text-decoration:none;">[CANCEL]</a>
+            </div>
+        <?php endif; ?>
+
         <form method="POST" autocomplete="off">
             <?php if($is_reply): ?>
                 <input type="hidden" name="quote_data" value="<?= "\n[quote=" . htmlspecialchars($reply_user) . "]" . htmlspecialchars($reply_text) . "[/quote]" ?>">
-                <div style="position:absolute; top:5px; left:10px; background:#0d0d0d; border:1px solid #d19a66; border-left: 3px solid #d19a66; color:#d19a66; font-size:0.75rem; padding:4px 10px; z-index:50; font-family:monospace; font-weight:bold;">
-                    >> REPLYING TO: <span style="color:#fff;"><?= htmlspecialchars($reply_user) ?></span>
-                </div>
             <?php endif; ?>
             
             <div style="display: flex; width: 100%;">
-<a href="#help_modal" style="background: #161616; color: #6a9c6a; border: 1px solid #333; border-right: none; padding: 0 10px; font-weight: bold; font-size: 1rem; display: flex; align-items: center; text-decoration: none; height: 30px; box-sizing: border-box;" title="View Codes">[?]</a>
+<a href="help_bbcode.php" target="_blank" style="background: #161616; color: #6a9c6a; border: 1px solid #333; border-right: none; padding: 0 10px; font-weight: bold; font-size: 1rem; display: flex; align-items: center; text-decoration: none; height: 30px; box-sizing: border-box;" title="Open Formatting Guide">[?]</a>
             
             <?php 
                 $ph = "Type a message...";
@@ -221,28 +234,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </form>
     <?php endif; ?>
-    <div id="help_modal" style="display:none;">
-        <div style="position:fixed; bottom:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9000; display:flex; flex-direction:column; padding:10px; box-sizing:border-box;">
-            <div style="flex:1; overflow-y:auto; border:1px solid #333; background:#0d0d0d; padding:10px;">
-                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:5px; margin-bottom:5px;">
-                    <strong style="color:#6a9c6a;">BBCODE CHEATSHEET</strong>
-                    <a href="#" style="color:#e06c75; text-decoration:none;">[ CLOSE ]</a>
-                </div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; font-size:0.7rem; color:#ccc;">
-                    <div>[b]B[/b] <b>Bold</b></div>
-                    <div>[i]I[/i] <em>Italic</em></div>
-                    <div>[color=red]..[/color]</div>
-                    <div>[quote]..[/quote]</div>
-                    <div>[spoiler]..[/spoiler]</div>
-                    <div>[glitch]..[/glitch]</div>
-                    <div>[rainbow]..[/rainbow]</div>
-                    <div>[shake]..[/shake]</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <style>
-        #help_modal:target { display: block !important; }
-    </style>
+    <div style="background: #161616; border: 1px solid #333; width: 100%; max-width: 400px; padding: 15px; position: relative;">
+        <a href="chat.php" style="position: absolute; top: 8px; right: 10px; color: #666; text-decoration: none; font-size:0.8rem;">[ CLOSE ]</a>
+        
+        <h2 style="color: #6a9c6a; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 5px; font-size: 1rem; margin-bottom: 15px;">INVITE SYSTEM</h2>
 </body>
 </html>

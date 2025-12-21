@@ -14,6 +14,7 @@ $title_val = '';
 $body_val = '';
 $rank_val = 1; // Default Public
 $cutoff_val = 250; // Default Cutoff
+$pinned_val = 0; // Default Not Pinned
 $mode_label = 'NEW_POST';
 
 // Load existing post if editing
@@ -26,6 +27,7 @@ if ($edit_id) {
         $body_val = $post['body'];
         $rank_val = $post['min_rank'];
         $cutoff_val = $post['preview_cutoff'] ?? 250;
+        $pinned_val = $post['is_pinned'] ?? 0;
         $mode_label = 'EDIT_POST // ID: ' . $edit_id;
     }
 }
@@ -39,22 +41,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title_val = trim($_POST['title']);
     $body_val = trim($_POST['body']);
     
-    // FIX: Force Rank 1 (Public) minimum. 
-    // The previous error was (int)NULL becoming 0, creating an invisible post.
+    // FIX: Force Rank 1 (Public) minimum.
     $rank_input = (int)($_POST['min_rank'] ?? 1);
     $rank_val = ($rank_input < 1) ? 1 : $rank_input;
     
     $cutoff_val = (int)($_POST['cutoff'] ?? 250);
+    $pinned_val = isset($_POST['is_pinned']) ? 1 : 0;
     
     // 2. ACTION: PREVIEW
     if (isset($_POST['action_preview'])) {
         if ($title_val && $body_val) {
+            // Added overflow-wrap for preview
             $preview_html = "
             <div style='border:1px dashed #6a9c6a; padding:15px; margin-bottom:20px; background:#051005;'>
                 <div style='color:#e0e0e0; font-weight:bold; border-bottom:1px solid #333; margin-bottom:10px; font-size:0.9rem;'>
                     PREVIEW: " . htmlspecialchars($title_val) . "
                 </div>
-                <div style='font-family:monospace; color:#ccc; line-height:1.5; font-size:0.9rem;'>" . parse_bbcode($body_val) . "</div>
+                <div style='font-family:monospace; color:#ccc; line-height:1.5; font-size:0.9rem; overflow-wrap: anywhere; word-break: break-word;'>" . parse_bbcode($body_val) . "</div>
             </div>";
         } else {
             $msg = "Title and Body required for preview.";
@@ -65,9 +68,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action_post'])) {
         if ($title_val && $body_val) {
             if ($edit_id) {
-                // UPDATE
-                $stmt = $pdo->prepare("UPDATE posts SET title=?, body=?, min_rank=?, preview_cutoff=? WHERE id=?");
-                $stmt->execute([$title_val, $body_val, $rank_val, $cutoff_val, $edit_id]);
+                // UPDATE (Added is_pinned)
+                $stmt = $pdo->prepare("UPDATE posts SET title=?, body=?, min_rank=?, preview_cutoff=?, is_pinned=? WHERE id=?");
+                $stmt->execute([$title_val, $body_val, $rank_val, $cutoff_val, $pinned_val, $edit_id]);
                 
                 // Log it (Identity Protected)
                 if(isset($_SESSION['user_id'])) {
@@ -77,9 +80,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ->execute([$_SESSION['user_id'], $_SESSION['username'], "Edited Post #$edit_id", $log_ident]);
                 }
             } else {
-                // INSERT
-                $stmt = $pdo->prepare("INSERT INTO posts (user_id, title, body, min_rank, preview_cutoff) VALUES (?, ?, ?, ?, ?)");
-                $stmt->execute([$_SESSION['user_id'], $title_val, $body_val, $rank_val, $cutoff_val]);
+                // INSERT (Added is_pinned)
+                $stmt = $pdo->prepare("INSERT INTO posts (user_id, title, body, min_rank, preview_cutoff, is_pinned) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$_SESSION['user_id'], $title_val, $body_val, $rank_val, $cutoff_val, $pinned_val]);
             }
             header("Location: admin_dash.php?view=posts"); exit;
         } else {
@@ -129,12 +132,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <input type="number" name="cutoff" value="<?= $cutoff_val ?>" style="background:#0d0d0d;" placeholder="250">
                     <small style="color:#555; font-size:0.6rem;">Characters shown on homepage before "Read More" link.</small>
                 </div>
-                <div class="input-group"></div>
+                <div class="input-group" style="display:flex; align-items:center;">
+                    <label style="cursor:pointer; display:flex; align-items:center; gap:10px; color:#e5c07b; font-weight:bold; border:1px solid #333; padding:10px; width:100%;">
+                        <input type="checkbox" name="is_pinned" value="1" <?= $pinned_val ? 'checked' : '' ?>>
+                        PIN TRANSMISSION TO TOP
+                    </label>
+                </div>
             </div>
             
             <div class="input-group">
                 <label>MESSAGE BODY</label>
-                <?= get_bbcode_menu() ?>
+                
+                <details style="margin-bottom:10px; border:1px solid #333; background:#111;">
+                    <summary style="padding:8px 15px; cursor:pointer; color:#6a9c6a; font-size:0.7rem; font-weight:bold;">[+] OPEN BBCODE CHEATSHEET (ENHANCED)</summary>
+                    <div style="padding:15px; display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; font-size:0.65rem; color:#ccc;">
+                        <div>[b]Bold[/b]</div>
+                        <div>[i]Italic[/i]</div>
+                        <div>[u]Underline[/u]</div>
+                        <div>[s]Strikethrough[/s]</div>
+                        
+                        <div>[h1]Header[/h1]</div>
+                        <div>[color=red]Text[/color]</div>
+                        <div>[size=5]Big[/size]</div>
+                        <div>[center]Text[/center]</div>
+
+                        <div style="color:#e5c07b;">[quote]...[/quote]</div>
+                        <div style="color:#e5c07b;">[code]...[/code]</div>
+                        <div style="color:#e5c07b;">[img]url[/img]</div>
+                        <div style="color:#e5c07b;">[url=link]T[/url]</div>
+
+                        <div style="color:#56b6c2;">[accordion] [panel=Title]Content[/panel] [/accordion]</div>
+                        <div style="color:#56b6c2;">[spoiler]Hidden[/spoiler]</div>
+                        <div style="color:#56b6c2;">[blur]Blurry[/blur]</div>
+                        <div style="color:#56b6c2;">[redacted]Blackout[/redacted]</div>
+
+                        <div style="color:#e06c75;">[glitch]Text[/glitch]</div>
+                        <div style="color:#e06c75;">[shake]Text[/shake]</div>
+                        <div style="color:#e06c75;">[rainbow]Text[/rainbow]</div>
+                        <div style="color:#e06c75;">[pulse]Text[/pulse]</div>
+
+                        <div style="grid-column: 1/-1; border-top:1px dashed #333; padding-top:5px; margin-top:5px; color:#888;">
+                            <strong>Special:</strong> [pgp]...[/pgp] (Preserves format), [cmd]command[/cmd], [ascii]art[/ascii], [box=animated]Content[/box]
+                        </div>
+                    </div>
+                </details>
+
                 <textarea name="body" class="pgp-box" style="height: 400px; background:#0d0d0d; font-size: 0.9rem; font-family:monospace;" required><?= htmlspecialchars($body_val) ?></textarea>
             </div>
             

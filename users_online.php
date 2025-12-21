@@ -175,11 +175,13 @@ try {
 
     <div class="list-container">
 <div class="section-head">
-            <span>NODES (<?= count($display_users) ?>)</span>
+            <span style="font-size: 0.9rem; font-weight: bold; letter-spacing: 1px;">NODES (<?= count($display_users) ?>)</span>
             <div>
+                <?php if(!isset($_SESSION['is_guest']) || !$_SESSION['is_guest']): ?>
                 <a href="pm.php" target="_blank" class="inbox-link <?= $unread_count > 0 ? 'inbox-unread' : 'inbox-read' ?>">
                     [ INBOX<?= $unread_count > 0 ? ":$unread_count" : '' ?> ]
                 </a>
+                <?php endif; ?>
                 <a href="users_online.php" class="refresh-link">[ REFRESH ]</a>
             </div>
         </div>

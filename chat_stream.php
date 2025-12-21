@@ -242,10 +242,15 @@ try {
         if ($now - $last_pin_check >= 5) {
             $last_pin_check = $now;
             try {
-                $p_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'chat_pinned_msg'");
-                $pin_msg = trim($p_stmt->fetchColumn() ?? '');
+                $p_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_pinned_msg', 'chat_pin_style')");
+                $p_conf = [];
+                while($r = $p_stmt->fetch()) $p_conf[$r['setting_key']] = $r['setting_value'];
+
+                $pin_msg = trim($p_conf['chat_pinned_msg'] ?? '');
+                $pin_style = $p_conf['chat_pin_style'] ?? 'INFO';
                 
-                $pin_hash = md5($pin_msg);
+                // Hash includes style so we update if style changes
+                $pin_hash = md5($pin_msg . $pin_style);
                 if ($pin_hash !== $current_pin_hash) {
                     $current_pin_hash = $pin_hash;
                     // Output or Clear Pin
@@ -253,17 +258,25 @@ try {
                         echo "<style>#pin_banner { display: none !important; } body { padding-top: 20px !important; }</style>";
                     } else {
                         $parsed_pin = parse_bbcode($pin_msg);
+                        
+                        // Determine Colors based on Style
+                        $c_bg = "#1a1005"; $c_text = "#e5c07b"; $c_border = "#e5c07b"; $label = "[NOTICE]";
+                        
+                        if ($pin_style === 'WARN') { $c_bg = "#220505"; $c_text = "#e06c75"; $c_border = "#e06c75"; $label = "[WARNING]"; }
+                        elseif ($pin_style === 'CRIT') { $c_bg = "#1a051a"; $c_text = "#c678dd"; $c_border = "#c678dd"; $label = "[CRITICAL]"; }
+                        elseif ($pin_style === 'SUCCESS') { $c_bg = "#051505"; $c_text = "#98c379"; $c_border = "#98c379"; $label = "[UPDATE]"; }
+                        elseif ($pin_style === 'INFO') { $c_bg = "#051020"; $c_text = "#61afef"; $c_border = "#61afef"; $label = "[INFO]"; }
+
                         // Fixed Bar at Top
                         echo "<style>
                             #pin_banner { display: block !important; }
                             body { padding-top: 50px !important; } /* Push content down */
                         </style>";
-                        // We use a unique ID each update to force replace or just use CSS to show/hide a static container? 
-                        // Since we can't easily replace HTML in the stream, we append a new fixed div that covers the old one using z-index or ID.
-                        // Best approach: Append a new div with a unique ID that covers previous ones.
+                        
                         $pid = "pin_" . time();
-                        echo "<div id='$pid' style='position:fixed; top:0; left:0; width:100%; background:#1a1005; border-bottom:1px solid #e5c07b; color:#e5c07b; padding:8px 10px; font-size:0.75rem; z-index:9000; box-sizing:border-box; box-shadow:0 2px 10px rgba(0,0,0,0.5);'>
-                                <strong style='color:#fff;'>[NOTICE]</strong> $parsed_pin
+                        echo "<div id='$pid' style='position:fixed; top:0; left:0; width:100%; background:$c_bg; border-bottom:1px solid $c_border; color:$c_text; padding:10px; font-size:0.75rem; z-index:9000; box-sizing:border-box; box-shadow:0 2px 10px rgba(0,0,0,0.5); display:flex; align-items:center; gap:10px;'>
+                                <strong style='background:$c_border; color:#000; padding:2px 6px; border-radius:2px;'>$label</strong> 
+                                <span>$parsed_pin</span>
                               </div>";
                         // Hide previous pins
                         echo "<script>var old = document.querySelectorAll('div[id^=\"pin_\"]'); for(var i=0; i<old.length-1; i++) { old[i].style.display='none'; }</script>";
@@ -299,10 +312,10 @@ try {
              }
 
              if ($kill_stream) {
-                 echo "<style>html, body { background: #000 !important; } .msg-row, .sys-msg { display: none !important; }</style>";
+                 echo "<style>html, body { background: #000 !important; overflow:hidden; } .msg-row, .sys-msg, #pin_banner { display: none !important; }</style>";
                  echo "<div style='position:fixed; top:0; left:0; width:100%; height:100%; background:#000; display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:99999;'>
-                        <h1 style='color:#e06c75;'>TERMINATED</h1>
-                        <a href='terminated.php' target='_top' style='color:#fff; border:1px solid #e06c75; padding:10px;'>[ EXIT ]</a>
+                        <h1 style='color:#e06c75; margin-bottom:20px; font-size:1.5rem;'>SIGNAL LOST</h1>
+                        <a href='logout.php' target='_top' style='color:#fff; border:1px solid #e06c75; padding:10px 20px; text-decoration:none; font-weight:bold; background:#1a0505;'>[ EXIT ]</a>
                        </div>";
                  echo str_repeat(" ", 1024); flush(); die();
              }

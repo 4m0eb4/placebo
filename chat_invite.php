@@ -7,7 +7,6 @@ if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['user_id'])) di
 if (isset($_SESSION['is_guest']) && $_SESSION['is_guest'] === true) die("GUESTS CANNOT INVITE");
 
 // --- DYNAMIC RANK CHECK ---
-// Fetch min rank from settings (Default: 5)
 $req_rank = 5;
 try {
     $stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'invite_min_rank'");
@@ -21,25 +20,20 @@ if (($_SESSION['rank'] ?? 0) < $req_rank) {
     </body></html>");
 }
 
-$token_display = '';
+$invite_code = '';
 $msg = "";
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $hours = (int)($_POST['duration'] ?? 1);
-    if ($hours < 1) $hours = 1;
-    if ($hours > 24) $hours = 24;
-
     try {
         $token = strtoupper(bin2hex(random_bytes(4)));
-        $expires = date('Y-m-d H:i:s', strtotime("+$hours hours"));
+        $expires = date('Y-m-d H:i:s', strtotime("+24 hours"));
 
-        // Insert into DB
         $stmt = $pdo->prepare("INSERT INTO guest_tokens (token, created_by, expires_at, status) VALUES (?, ?, ?, 'pending')");
         $stmt->execute([$token, $_SESSION['user_id'], $expires]);
         
-        $token_display = $token;
+        $invite_code = $token;
     } catch (Exception $e) {
-        $msg = "DB Error: Ensure database is updated.";
+        $msg = "DB Error";
     }
 }
 ?>
@@ -48,57 +42,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <link rel="stylesheet" href="style.css">
     <style>
-        body { 
-            display: flex !important; 
-            flex-direction: column !important;
-            justify-content: flex-start !important; /* Start at top */
-            background: transparent; 
-            padding: 10px; 
-            text-align: center; 
-            height: auto !important; /* Fit content */
-            box-sizing: border-box;
-            font-family: monospace;
-            overflow: hidden;
+        body { background: transparent; padding: 20px; display: flex; justify-content: center; font-family: monospace; }
+        .invite-box {
+            background: #161616; border: 1px solid #333; width: 100%; max-width: 350px; 
+            padding: 15px; position: relative; box-shadow: 0 0 10px rgba(0,0,0,0.5);
         }
-        /* ULTRA COMPACT FIX */
-        .token-box { 
-            background: #000; border: 1px dashed #6a9c6a; 
-            color: #6a9c6a; padding: 2px; font-size: 0.8rem; 
-            margin: 2px 0; letter-spacing: 1px; user-select: all;
-            font-weight: bold; font-family: monospace;
-        }
-        input[type="number"] { 
-            background: #000; color: #fff; border: 1px solid #333; 
-            padding: 0; width: 30px; text-align: center; outline: none;
-            font-family: monospace; font-size: 0.7rem; height: 18px;
-        }
-        p { margin: 0 0 5px 0; font-size: 0.6rem !important; color:#888; }
-        .btn-primary { padding: 2px 6px !important; font-size: 0.65rem !important; width: 100% !important; border-radius: 0; }
-        label { font-size: 0.6rem !important; }
-        h4 { margin: 0 0 5px 0; font-size: 0.7rem; color: #ccc; }
+        .btn-primary { padding: 8px 15px; font-size: 0.75rem; width: 100%; }
     </style>
 </head>
 <body>
-
-    <?php if($token_display): ?>
-        <div style="color:#fff; font-size:0.8rem;">TOKEN GENERATED</div>
-        <div class="token-box"><?= $token_display ?></div>
-        <p style="font-size: 0.75rem; color: #666; margin-bottom:15px;">Valid for <?= $hours ?> Hours.</p>
+    <div class="invite-box">
+        <a href="chat.php" style="position: absolute; top: 8px; right: 10px; color: #666; text-decoration: none; font-size:0.7rem;">[ CLOSE ]</a>
         
-        <form method="POST">
-            <button type="submit" class="btn-primary" style="width: auto; padding: 10px 20px;">GENERATE NEW</button>
-        </form>
-
-<?php else: ?>
-        <div style="display:flex; flex-direction:column; gap:4px;">
-            <?php if($msg): ?><div style="color:#e06c75; font-size:0.6rem;"><?= $msg ?></div><?php endif; ?>
-            <form method="POST" style="display:flex; align-items:center; gap:5px; justify-content:center;">
-                <label style="color:#6a9c6a;">HRS:</label>
-                <input type="number" name="duration" value="1" min="1" max="24" required>
-                <button type="submit" class="btn-primary" style="flex:1;">GENERATE</button>
+        <h2 style="color: #6a9c6a; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 5px; font-size: 0.9rem; margin-bottom: 15px;">INVITE SYSTEM</h2>
+        
+        <?php if($invite_code): ?>
+            <div style="background: #000; padding: 10px; border: 1px dashed #6a9c6a; text-align: center; margin-bottom: 10px;">
+                <div style="font-size: 0.65rem; color: #888;">ACCESS KEY GENERATED</div>
+                <div style="font-size: 1.2rem; color: #fff; letter-spacing: 2px; font-family: monospace; user-select: all; margin-top:5px;"><?= $invite_code ?></div>
+            </div>
+            <p style="color: #aaa; font-size: 0.7rem; text-align: center; margin:0;">Valid for 24 hours.</p>
+        <?php else: ?>
+            <p style="color: #ccc; font-size: 0.8rem; margin-bottom: 15px; line-height:1.4;">
+                Generate a one-time registration key.<br>
+                <span style="color: #e06c75; font-size:0.7rem;">NOTE: You are responsible for your invites.</span>
+            </p>
+            <form method="POST">
+                <button type="submit" name="generate" class="btn-primary">CREATE KEY</button>
             </form>
-        </div>
-    <?php endif; ?>
-
+        <?php endif; ?>
+    </div>
 </body>
 </html>

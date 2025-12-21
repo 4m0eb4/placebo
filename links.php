@@ -18,6 +18,14 @@ if (isset($_GET['cat']) && is_numeric($_GET['cat'])) {
     $params[] = $_GET['cat'];
 }
 
+// Quick Search Filter
+if (isset($_GET['q']) && !empty($_GET['q'])) {
+    $sql .= " AND (sl.title LIKE ? OR sl.url LIKE ?)";
+    $term = '%' . $_GET['q'] . '%';
+    $params[] = $term;
+    $params[] = $term;
+}
+
 $sql .= " ORDER BY lc.display_order ASC, sl.created_at DESC";
 
 $stmt = $pdo->prepare($sql);
@@ -74,6 +82,15 @@ foreach($raw_links as $l) {
         </div>
     </div>
     
+    <div style="background:#0f0f0f; border-bottom:1px solid #333; padding:10px 20px;">
+        <form method="GET" style="display:flex; gap:10px;">
+            <?php if(isset($_GET['cat'])): ?><input type="hidden" name="cat" value="<?= htmlspecialchars($_GET['cat']) ?>"><?php endif; ?>
+            <input type="text" name="q" placeholder="Search Uplinks..." value="<?= htmlspecialchars($_GET['q']??'') ?>" style="background:#000; border:1px solid #333; color:#fff; padding:5px 10px; font-family:monospace; font-size:0.75rem; width:200px;">
+            <button type="submit" style="background:#222; border:1px solid #333; color:#6a9c6a; cursor:pointer; font-family:monospace; font-size:0.75rem; padding:0 15px;">SEARCH</button>
+            <?php if(isset($_GET['q'])): ?><a href="links.php" style="color:#e06c75; font-size:0.75rem; display:flex; align-items:center; text-decoration:none;">[CLEAR]</a><?php endif; ?>
+        </form>
+    </div>
+
     <div style="background:#111; border-bottom:1px solid #333; padding:10px 20px; display:flex; gap:15px; flex-wrap:wrap; font-family:monospace; font-size:0.75rem;">
         <a href="links.php" style="color: <?= !isset($_GET['cat']) ? '#fff' : '#666' ?>; text-decoration:none;">[ALL]</a>
         <?php foreach($cats as $c): ?>
@@ -104,6 +121,9 @@ foreach($raw_links as $l) {
                         </a>
                     </div>
                     <div class="link-meta">
+                        <span style="background:#222; padding:2px 5px; color:#d19a66; margin-right:5px; border:1px solid #333; text-transform:uppercase; font-size:0.6rem;">
+                            <?= htmlspecialchars($l['cat_name'] ?? 'General') ?>
+                        </span><br>
                         SOURCE: <span style="color:#ccc;"><?= htmlspecialchars($l['posted_by']) ?></span><br>
                         <?= date('Y-m-d', strtotime($l['created_at'])) ?>
                     </div>
