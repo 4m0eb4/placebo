@@ -16,11 +16,18 @@ if (!isset($_SESSION['fully_authenticated']) || $_SESSION['fully_authenticated']
 
 $my_rank = $_SESSION['rank'] ?? 1;
 
-// Fetch Posts FILTERED BY RANK
-// We use 'min_rank <= ?' to only show what the user is allowed to see
-$stmt = $pdo->prepare("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.min_rank <= ? ORDER BY p.created_at DESC");
-$stmt->execute([$my_rank]);
-$posts = $stmt->fetchAll();
+// Fetch Posts: Pinned First, then Date
+// NOTE: Ensure 'is_pinned' column exists in posts table.
+try {
+    $stmt = $pdo->prepare("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.min_rank <= ? ORDER BY p.is_pinned DESC, p.created_at DESC");
+    $stmt->execute([$my_rank]);
+    $posts = $stmt->fetchAll();
+} catch (Exception $e) {
+    // Fallback if 'is_pinned' missing
+    $stmt = $pdo->prepare("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.min_rank <= ? ORDER BY p.created_at DESC");
+    $stmt->execute([$my_rank]);
+    $posts = $stmt->fetchAll();
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -80,34 +87,33 @@ $posts = $stmt->fetchAll();
 
         <?php foreach($posts as $p): ?>
             <?php 
-                // CLEAN PREVIEW LOGIC
+                // ROBUST PREVIEW LOGIC
                 $full_body = $p['body'];
                 $cutoff = $p['preview_cutoff'] ?? 250;
                 $has_more = false;
-
-                // 1. Strip ALL BBCode Tags to get raw text for the preview
-                // This prevents "[b]Hel..." broken tags
-                $raw_text_only = preg_replace('/\[\/?[^\]]*\]/', '', $full_body);
                 
-                // 2. Check length of raw text
-                if (strlen($raw_text_only) > $cutoff) {
+                // 1. Safe Strip for calculation
+                $clean_text = strip_tags(preg_replace('/\[\/?[^\]]*\]/', '', $full_body));
+                
+                // 2. Determine Display Mode
+                if (strlen($clean_text) > $cutoff) {
                     $has_more = true;
-                    // Truncate the CLEAN text
-                    $snippet = mb_substr($raw_text_only, 0, $cutoff);
+                    // Show TEXT ONLY preview to avoid unclosed tags breaking the page
+                    $snippet = mb_substr($clean_text, 0, $cutoff);
                     $preview_html = nl2br(htmlspecialchars($snippet)) . "...";
                 } else {
-                    // If short enough, we can show the full formatted version
-                    $preview_html = parse_bbcode($full_body);
+                    // Short post: Show fully rendered BBCode
+                    // Use a div wrapper to contain any potential CSS leaks
+                    $preview_html = '<div class="bb-render">' . parse_bbcode($full_body) . '</div>';
                 }
-                
-                // Clearance Label
+
                 $clearance_label = "";
                 if($p['min_rank'] > 1) $clearance_label = "<span class='badge-rank'>LEVEL {$p['min_rank']}</span>";
+                $pin_icon = ($p['is_pinned']??0) ? "📌 " : "";
             ?>
-            <div class="blog-post">
-                <div class="blog-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="blog-title" style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <a href="post.php?id=<?= $p['id'] ?>" style="color:#e0e0e0; text-decoration:none;"><?= parse_bbcode($p['title']) ?></a>
+                        <a href="post.php?id=<?= $p['id'] ?>" style="color:#e0e0e0; text-decoration:none;"><?= $pin_icon . parse_bbcode($p['title']) ?></a>
                         <?= $clearance_label ?>
                     </div>
                     

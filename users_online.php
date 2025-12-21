@@ -29,13 +29,20 @@ try {
 // --- 2. FETCH & FILTER USERS ---
 $display_users = [];
 try {
-    // FETCH ALL RECENT USERS (Last 24h)
-    // We filter visibility in PHP to prevent SQL logic errors
+    // Fetch Custom Rank Names
+    $rank_map = [10=>'OWNER', 9=>'ADMIN', 5=>'VIP', 1=>'USER'];
+    $r_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'rank_config'");
+    if($json = $r_stmt->fetchColumn()) { 
+        $decoded = json_decode($json, true);
+        if($decoded) $rank_map = $decoded + $rank_map;
+    }
+
+    // STRICTER FILTER: Only active within 15 minutes (Real-time feel)
     $stmt = $pdo->query("
         SELECT id, username, rank, chat_color, user_status, show_online, last_active,
                (CASE WHEN last_active > (NOW() - INTERVAL 5 MINUTE) THEN 1 ELSE 0 END) as is_live
         FROM users 
-        WHERE last_active > (NOW() - INTERVAL 24 HOUR)
+        WHERE last_active > (NOW() - INTERVAL 15 MINUTE)
         AND is_banned = 0
         ORDER BY is_live DESC, last_active DESC
     ");
@@ -130,11 +137,12 @@ try {
         .row:hover { background: #131313; }
 
         /* INFO COLUMN */
-        .info-col { display: flex; flex-direction: column; gap: 2px; }
+        .info-col { display: flex; flex-direction: column; gap: 4px; }
         
-        .username-link { font-size: 0.8rem; font-weight: bold; text-decoration: none; }
+        /* UPDATED: Larger Text Sizes */
+        .username-link { font-size: 0.95rem; font-weight: bold; text-decoration: none; letter-spacing: 0.5px; }
         
-        .status-line { font-size: 0.65rem; color: #555; display: flex; align-items: center; gap: 5px; }
+        .status-line { font-size: 0.75rem; color: #666; display: flex; align-items: center; gap: 6px; }
         
         .pulse {
             display: inline-block; width: 6px; height: 6px; 
@@ -185,11 +193,11 @@ try {
             <div class="row" style="opacity: <?= $opacity ?>;">
                 <div class="info-col">
                     <div>
-                        <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" class="username-link" style="color: <?= htmlspecialchars($u['chat_color']) ?>">
+                    <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" class="username-link" style="color: <?= htmlspecialchars($u['chat_color']) ?>">
                             <?= htmlspecialchars($u['username']) ?>
                         </a>
-                        <?php if(!$u['is_live']): ?><span style="font-size:0.6rem; color:#666;">[IDLE]</span><?php endif; ?>
-                        <span class="badge badge-<?= $u['rank'] ?>">L<?= $u['rank'] ?></span>
+                        <?php if(!$u['is_live']): ?><span style="font-size:0.6rem; color:#444;">[IDLE]</span><?php endif; ?>
+                        <span class="badge badge-<?= $u['rank'] ?>"><?= htmlspecialchars(strtoupper($rank_map[$u['rank']] ?? 'L'.$u['rank'])) ?></span>
                     </div>
                     <?php if(!empty($u['user_status'])): ?>
                         <div class="status-line"><span class="pulse"></span> <?= htmlspecialchars($u['user_status']) ?></div>

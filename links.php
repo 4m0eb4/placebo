@@ -3,15 +3,25 @@ session_start();
 require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
-// FETCH LINKS WITH CATEGORY NAME
-// Uses LEFT JOIN to handle links that might have no category
-$stmt = $pdo->query("
-    SELECT sl.*, lc.name as cat_name 
+// FETCH CATEGORIES FOR NAV
+$cats = $pdo->query("SELECT * FROM link_categories ORDER BY display_order ASC")->fetchAll();
+
+// BUILD QUERY
+$sql = "SELECT sl.*, lc.name as cat_name 
     FROM shared_links sl 
     LEFT JOIN link_categories lc ON sl.category_id = lc.id 
-    WHERE sl.status = 'approved' 
-    ORDER BY lc.display_order ASC, sl.created_at DESC
-");
+    WHERE sl.status = 'approved'";
+
+$params = [];
+if (isset($_GET['cat']) && is_numeric($_GET['cat'])) {
+    $sql .= " AND sl.category_id = ?";
+    $params[] = $_GET['cat'];
+}
+
+$sql .= " ORDER BY lc.display_order ASC, sl.created_at DESC";
+
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
 $raw_links = $stmt->fetchAll();
 
 // GROUP BY CATEGORY
@@ -62,6 +72,15 @@ foreach($raw_links as $l) {
              <a href="settings.php">[ SETTINGS ]</a>
              <a href="logout.php">LOGOUT</a>
         </div>
+    </div>
+    
+    <div style="background:#111; border-bottom:1px solid #333; padding:10px 20px; display:flex; gap:15px; flex-wrap:wrap; font-family:monospace; font-size:0.75rem;">
+        <a href="links.php" style="color: <?= !isset($_GET['cat']) ? '#fff' : '#666' ?>; text-decoration:none;">[ALL]</a>
+        <?php foreach($cats as $c): ?>
+            <a href="?cat=<?= $c['id'] ?>" style="color: <?= (isset($_GET['cat']) && $_GET['cat'] == $c['id']) ? '#e5c07b' : '#888' ?>; text-decoration:none;">
+                <?= htmlspecialchars(strtoupper($c['name'])) ?>
+            </a>
+        <?php endforeach; ?>
     </div>
 
     <div class="content-area" style="padding: 30px; background: #0d0d0d; min-height: 80vh;">

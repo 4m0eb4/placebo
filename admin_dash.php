@@ -178,6 +178,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 5. CHAT ACTIONS
     if ($tab === 'chat') {
+        // A. GLOBAL CONFIG
+        if (isset($_POST['save_chat_config'])) {
+            $upd = [
+                'chat_locked' => isset($_POST['chat_locked']) ? '1' : '0',
+                'chat_slow_mode' => (int)$_POST['chat_slow_mode'],
+                'chat_pinned_msg' => trim($_POST['chat_pinned_msg'])
+            ];
+            foreach($upd as $k=>$v) {
+                $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+                $stmt->execute([$k, $v, $v]);
+            }
+            // Signal clients to refresh settings/pin
+            $pdo->prepare("INSERT INTO chat_signals (signal_type) VALUES ('CONFIG_UPDATE')")->execute();
+            $msg = "Chat Configuration Updated.";
+        }
+
+        // B. WIPE USER
+        if (isset($_POST['wipe_user_chat'])) {
+            $target = $_POST['wipe_username'];
+            // Get ID first
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+            $stmt->execute([$target]);
+            if ($uid = $stmt->fetchColumn()) {
+                $pdo->prepare("DELETE FROM chat_messages WHERE user_id = ?")->execute([$uid]);
+                $pdo->prepare("INSERT INTO chat_signals (signal_type) VALUES ('PURGE')")->execute();
+                $msg = "All messages from '$target' obliterated.";
+            } else {
+                $msg = "User not found.";
+            }
+        }
+
         if (isset($_POST['repair_chat_db'])) {
             $pdo->exec("DROP TABLE IF EXISTS chat_messages");
             $pdo->exec("CREATE TABLE chat_messages (
@@ -206,6 +237,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 6. LINK ACTIONS
     if ($tab === 'links') {
+        // CATEGORY MANAGEMENT
+        if (isset($_POST['add_cat'])) {
+            $pdo->prepare("INSERT INTO link_categories (name, display_order) VALUES (?, 0)")->execute([$_POST['cat_name']]);
+            $msg = "Category Added.";
+        }
+        if (isset($_POST['del_cat'])) {
+            $pdo->prepare("DELETE FROM link_categories WHERE id = ?")->execute([$_POST['cat_id']]);
+            $pdo->prepare("UPDATE shared_links SET category_id = NULL WHERE category_id = ?")->execute([$_POST['cat_id']]);
+            $msg = "Category Deleted.";
+        }
+
+        // APPROVE ALL
+        if (isset($_POST['approve_all'])) {
+            $pdo->exec("UPDATE shared_links SET status = 'approved' WHERE status = 'pending'");
+            $msg = "All Pending Links Approved.";
+        }
+
         // MANUAL ADD
         if (isset($_POST['manual_add_link'])) {
             $url = $_POST['new_url'];
@@ -575,12 +623,51 @@ if ($tab === 'logs') {
 
         <?php if($tab === 'chat'): ?>
         <div class="panel-header"><h2 class="panel-title">Chat System Controls</h2></div>
-        <div style="padding: 20px; background: #111; border: 1px solid #333; text-align: center;">
-            <div style="display:flex; justify-content: center; gap:20px;">
-                <form method="POST" onsubmit="return confirm('Fix Database? Wipes chat history.');"><button type="submit" name="repair_chat_db" class="btn-primary" style="width: auto; background:#6a9c6a; border-color:#6a9c6a; color:#000;">REPAIR DATABASE</button></form>
-                <form method="POST" onsubmit="return confirm('Wipe ALL chat messages?');"><button type="submit" name="purge_chat" class="btn-primary" style="width: auto; background:#e06c75; border-color:#e06c75;">PURGE MESSAGES</button></form>
+        <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
+
+        <div style="background:#111; border:1px solid #333; padding:15px; margin-bottom:20px;">
+            <h3 style="color:#6a9c6a; font-size:0.9rem; margin-top:0;">GLOBAL SETTINGS</h3>
+            <form method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <div>
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin-bottom:15px; color:#e06c75; font-weight:bold;">
+                        <input type="checkbox" name="chat_locked" value="1" <?= ($settings['chat_locked']??'0')=='1' ? 'checked' : '' ?>>
+                        LOCK CHAT (ADMIN ONLY)
+                    </label>
+                    <div class="input-group">
+                        <label>Slow Mode (Seconds)</label>
+                        <input type="number" name="chat_slow_mode" value="<?= $settings['chat_slow_mode'] ?? 0 ?>" min="0" style="width:100px;">
+                    </div>
+                </div>
+                <div>
+                    <div class="input-group">
+                        <label>Pinned Notice (BBCode Allowed)</label>
+                        <textarea name="chat_pinned_msg" style="height:60px;"><?= htmlspecialchars($settings['chat_pinned_msg'] ?? '') ?></textarea>
+                    </div>
+                    <button type="submit" name="save_chat_config" class="btn-primary" style="margin-top:5px;">APPLY CONFIG</button>
+                </div>
+            </form>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px;">
+            <div style="background:#111; border:1px solid #333; padding:15px;">
+                <h3 style="color:#d19a66; font-size:0.9rem; margin-top:0;">WIPE USER HISTORY</h3>
+                <form method="POST" onsubmit="return confirm('Delete ALL messages from this user?');">
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" name="wipe_username" placeholder="Username" required style="background:#000; color:#fff; border:1px solid #444; padding:8px;">
+                        <button type="submit" name="wipe_user_chat" class="badge" style="background:#e06c75; border:none; color:#000; padding:8px 15px; cursor:pointer; font-weight:bold;">WIPE</button>
+                    </div>
+                </form>
+            </div>
+            
+            <div style="background:#111; border:1px solid #333; padding:15px;">
+                <h3 style="color:#e06c75; font-size:0.9rem; margin-top:0;">NUCLEAR OPTIONS</h3>
+                <div style="display:flex; gap:10px;">
+                    <form method="POST" onsubmit="return confirm('Fix Database? Wipes chat history.');"><button type="submit" name="repair_chat_db" class="badge" style="background:#6a9c6a; color:#000; border:none; padding:8px 15px; cursor:pointer;">REPAIR DB</button></form>
+                    <form method="POST" onsubmit="return confirm('Wipe ALL chat messages?');"><button type="submit" name="purge_chat" class="badge" style="background:#e06c75; color:#000; border:none; padding:8px 15px; cursor:pointer;">PURGE ALL</button></form>
+                </div>
             </div>
         </div>
+
         <div style="margin-top:20px; padding: 20px; background: #111; border: 1px solid #333;">
             <h3 style="margin-top:0; color:#ccc; font-size:0.9rem;">SYSTEM BROADCAST</h3>
             <form method="POST" style="display:flex; gap:10px;">
@@ -600,13 +687,37 @@ if ($tab === 'logs') {
 <?php if($tab === 'links'): ?>
     <?php 
         $cats = [];
-        try {
-            $cats = $pdo->query("SELECT * FROM link_categories ORDER BY display_order ASC")->fetchAll(); 
-        } catch(Exception $e) {
-            echo "<div class='error'>Warning: Link Categories table missing. Run 'db_fix_links.php'</div>";
-        }
+        try { $cats = $pdo->query("SELECT * FROM link_categories ORDER BY display_order ASC")->fetchAll(); } catch(Exception $e) {}
     ?>
     
+    <div style="margin-bottom:20px; border:1px solid #333; padding:10px; background:#0f0f0f; display:flex; gap:20px; align-items:flex-start;">
+        <div style="flex:1;">
+            <h3 style="margin:0 0 10px 0; color:#d19a66; font-size:0.8rem;">MANAGE CATEGORIES</h3>
+            <div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px;">
+                <?php foreach($cats as $c): ?>
+                    <form method="POST" style="display:inline-block; margin:0;">
+                        <input type="hidden" name="cat_id" value="<?= $c['id'] ?>">
+                        <span class="badge" style="border:1px solid #444; padding:4px 8px;">
+                            <?= htmlspecialchars($c['name']) ?>
+                            <button type="submit" name="del_cat" style="background:none; border:none; color:#e06c75; font-weight:bold; cursor:pointer; margin-left:5px;">x</button>
+                        </span>
+                    </form>
+                <?php endforeach; ?>
+            </div>
+            <form method="POST" style="display:flex; gap:5px;">
+                <input type="text" name="cat_name" placeholder="New Category Name" required style="width:150px; padding:5px; background:#000; border:1px solid #333; color:#fff; font-size:0.7rem;">
+                <button type="submit" name="add_cat" class="badge" style="background:#6a9c6a; color:#000; cursor:pointer; border:none;">ADD</button>
+            </form>
+        </div>
+        
+        <div style="border-left:1px solid #333; padding-left:20px;">
+             <h3 style="margin:0 0 10px 0; color:#6a9c6a; font-size:0.8rem;">BULK ACTIONS</h3>
+             <form method="POST" onsubmit="return confirm('Approve ALL pending?');">
+                 <button type="submit" name="approve_all" class="btn-primary" style="width:auto; background:#6a9c6a; color:#000;">APPROVE ALL PENDING</button>
+             </form>
+        </div>
+    </div>
+
     <div style="margin-bottom:30px; border:1px solid #333; padding:15px; background:#111;">
         <h3 style="margin-top:0; color:#6a9c6a; font-size:0.9rem;">+ MANUAL LINK INJECTION</h3>
         <form method="POST" style="display:grid; grid-template-columns: 2fr 2fr 1fr 1fr; gap:10px;">
@@ -657,8 +768,8 @@ if ($tab === 'logs') {
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Title / URL</th>
-                    <th style="width: 90px;">Action</th>
+                    <th>Content (Title & URL)</th>
+                    <th style="width: 150px;">Controls</th>
                 </tr>
             </thead>
             <tbody>
@@ -666,22 +777,19 @@ if ($tab === 'logs') {
             $approved = $pdo->query("SELECT * FROM shared_links WHERE status = 'approved' ORDER BY created_at DESC LIMIT 50")->fetchAll();
             foreach($approved as $l): ?>
             <tr>
+                <form method="POST">
                 <td>
-                    <form method="POST" style="display:flex; gap:10px;">
-                        <input type="hidden" name="edit_id" value="<?= $l['id'] ?>">
-                        <div style="flex:1;">
-                            <input type="text" name="edit_title" value="<?= htmlspecialchars($l['title'] ?? '') ?>" placeholder="No Title" style="width:100%; background:transparent; border:none; color:#d19a66; font-weight:bold;">
-                            <div style="font-size:0.7rem; color:#444;"><?= htmlspecialchars($l['url']) ?></div>
-                        </div>
-                        <button type="submit" name="update_link" class="badge" style="background:#333; color:#aaa; border:none; cursor:pointer;">SAVE</button>
-                    </form>
+                    <input type="hidden" name="edit_id" value="<?= $l['id'] ?>">
+                    <input type="text" name="edit_title" value="<?= htmlspecialchars($l['title'] ?? '') ?>" placeholder="No Title" style="width:100%; background:transparent; border:none; border-bottom:1px dashed #333; color:#d19a66; font-weight:bold; margin-bottom:2px;">
+                    <div style="font-size:0.7rem; color:#555; font-family:monospace;"><?= htmlspecialchars($l['url']) ?></div>
                 </td>
-                <td>
-                    <form method="POST">
-                        <input type="hidden" name="del_id" value="<?= $l['id'] ?>">
-                        <button type="submit" name="delete_link" class="badge" style="background:#e06c75; border:none; cursor:pointer; color:#000;">DELETE</button>
-                    </form>
+                <td style="vertical-align:middle;">
+                    <div style="display:flex; gap:5px; align-items:center;">
+                         <button type="submit" name="update_link" class="badge" style="background:#222; border:1px solid #444; color:#ccc; cursor:pointer; padding:5px 10px;">SAVE</button>
+                         <button type="submit" name="delete_link" name="del_id" value="<?= $l['id'] ?>" class="badge" style="background:#e06c75; border:none; color:#000; cursor:pointer; padding:6px 10px; font-weight:bold;" onclick="this.form.append('delete_link', '1'); this.form.append('del_id', '<?= $l['id'] ?>');">DEL</button>
+                    </div>
                 </td>
+                </form>
             </tr>
             <?php endforeach; ?>
             </tbody>

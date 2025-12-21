@@ -58,11 +58,27 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['msg_i
     exit;
 }
 
-// --- CHECK BURN STATUS ---
-$is_burning = false;
-$chk = $pdo->prepare("SELECT count(*) FROM private_messages WHERE (sender_id=? OR receiver_id=?) AND message='[SYSTEM::BURN_REQUEST]'");
-$chk->execute([$target_id, $target_id]);
-if ($chk->fetchColumn() > 0) $is_burning = true;
+// --- CHECK BURN STATUS & ORIGIN ---
+$burn_state = 'NONE'; // NONE, WAITING, CONFIRM
+
+// Check if a burn request exists in this specific conversation
+$chk = $pdo->prepare("SELECT id, sender_id FROM private_messages WHERE ((sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?)) AND message='[SYSTEM::BURN_REQUEST]' LIMIT 1");
+$chk->execute([$my_id, $target_id, $target_id, $my_id]);
+$burn_row = $chk->fetch();
+
+if ($burn_row) {
+    if ($burn_row['sender_id'] == $my_id) {
+        $burn_state = 'WAITING'; // I sent the request
+    } else {
+        $burn_state = 'CONFIRM'; // They sent the request
+    }
+}
+
+// HANDLE CANCELLATION (If I sent it, I can cancel it)
+if (isset($_POST['cancel_burn']) && $burn_state === 'WAITING') {
+    $pdo->prepare("DELETE FROM private_messages WHERE id = ?")->execute([$burn_row['id']]);
+    header("Location: pm_input.php?to=$target_id"); exit;
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -96,15 +112,18 @@ if ($chk->fetchColumn() > 0) $is_burning = true;
             <input type="text" name="message" autofocus placeholder="Type secure message...">
             <button type="submit" name="send_msg" class="btn-send">SEND</button>
         </div>
-        
-        <div class="toolbar">
-            <?php if($is_burning): ?>
-                <span style="color:#e06c75; font-size:0.7rem;">⚠ WIPE REQUESTED</span>
+<div class="toolbar" style="display:flex; align-items:center; gap:10px;">
+            <?php if($burn_state === 'CONFIRM'): ?>
+                <span style="color:#e06c75; font-size:0.7rem; font-weight:bold; animation:pulse 1s infinite;">⚠ PARTNER REQUESTED WIPE</span>
                 <input type="hidden" name="confirm_burn" value="1">
-                <button type="submit" class="btn-active-burn">CONFIRM WIPE</button>
-                <button type="submit" name="cancel_burn" class="btn-cancel" title="Cancel Request">[ X ]</button>
+                <button type="submit" class="btn-active-burn" style="background:#e06c75; color:#000; border:none; font-weight:bold;">CONFIRM & ERASE</button>
+
+            <?php elseif($burn_state === 'WAITING'): ?>
+                <span style="color:#e5c07b; font-size:0.7rem;">[ WAITING FOR PARTNER... ]</span>
+                <button type="submit" name="cancel_burn" style="background:none; border:1px solid #444; color:#888; cursor:pointer; font-size:0.65rem; padding:2px 6px;">CANCEL</button>
+
             <?php else: ?>
-                <button type="submit" name="request_burn" class="btn-burn" title="Delete conversation for both parties">INITIATE WIPE</button>
+                <button type="submit" name="request_burn" class="btn-burn" title="Permanently delete history for both sides">INITIATE WIPE</button>
             <?php endif; ?>
         </div>
     </form>

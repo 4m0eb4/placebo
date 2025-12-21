@@ -104,6 +104,12 @@ $current_req = $_SESSION['captcha_req'] ?? [];
             width: <?= $cellSize ?>px;
             height: <?= $cellSize ?>px;
         }
+        /* CENTERING FIX */
+        body {
+            display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0;
+            background-size: cover; background-position: center;
+        }
+        .login-wrapper { margin: 0; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
     </style>
 </head>
 <body class="<?= $theme_cls ?>" <?= $bg_style ?>>
@@ -160,6 +166,15 @@ $current_req = $_SESSION['captcha_req'] ?? [];
             <button type="submit" name="action_verify" class="btn-verify">CONFIRM PATTERN</button>
         </form>
     <?php endif; ?>
-    <div class="terminal-footer">---</div>
+    
+    <?php
+        // ONLINE COUNTER
+        $o_stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE last_active > (NOW() - INTERVAL 15 MINUTE) AND is_banned = 0");
+        $online_count = $o_stmt->fetchColumn();
+    ?>
+    <div class="terminal-footer" style="display:flex; justify-content:space-between; color:#444;">
+        <span>SECURE_LOGIN_V3</span>
+        <span>ONLINE_NODES: <strong style="color:#6a9c6a;"><?= $online_count ?></strong></span>
+    </div>
 </div>
 </body></html>

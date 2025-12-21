@@ -251,14 +251,24 @@ function parse_bbcode($text) {
     // 5) Convert newlines for normal text ONLY
     $text = nl2br($text);
 
-    // 5.5) AUTO-LINKIFY (Approved Links Only)
-    // Converts raw https:// URLs into clickable links. 
-    // Since unapproved links are blocked at input, these are safe.
+    // 5.5) AUTO-LINKIFY
+    
+    // A. Tor Onion Links (Raw) - Matches v2 (16 char) and v3 (56 char) addresses without http
+    // We strictly look for strings ending in .onion that are NOT preceded by / (to avoid breaking existing URLs)
+    $text = preg_replace(
+        '/(?<!\/)\b([a-z2-7]{16}|[a-z2-7]{56})\.onion(\/[^\s<]*)?/i', 
+        '<a href="http://$1.onion$2" target="_blank" style="color:#d19a66; text-decoration:underline;">$1.onion$2</a>', 
+        $text
+    );
+
+    // B. Standard Links (http/https)
     $text = preg_replace(
         '/(https?:\/\/[^\s<]+)/i', 
         '<a href="$1" target="_blank" style="color:#6a9c6a; text-decoration:underline;">$1</a>', 
         $text
     );
+
+    
 
 // 6) Restore PGP blocks as <pre> and auto-fix armor formatting for copy/decrypt
 foreach ($pgp_blocks as $token => $raw) {

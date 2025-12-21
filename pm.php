@@ -37,7 +37,7 @@ if ($target_id) {
     <title>Secure Comms</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .pm-container { width: 100%; max-width: 1200px; margin: 20px auto; } /* Widened to 1200px */
+        .pm-container { width: 100%; max-width: 1000px; margin: 0 auto; } /* Constraint applied */
         .inbox-card { background: #080808; border: 1px solid #222; padding: 15px; margin-bottom: 15px; }
         
         /* PGP ACCORDION */
@@ -59,7 +59,7 @@ if ($target_id) {
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="margin:0; padding:0; height:100vh; overflow:hidden; display:flex; flex-direction:column;">
 
-<div class="main-container" style="width: 100%; height:100%; display:flex; flex-direction:column;">
+<div class="main-container" style="width: 100%; max-width: 1000px; margin: 0 auto; height:100%; display:flex; flex-direction:column; border-left:1px solid #222; border-right:1px solid #222;">
     <div class="nav-bar" style="flex: 0 0 auto; background: #161616; border-bottom: 1px solid #333; padding: 10px 20px; display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap: 20px;">
             <a href="index.php" class="term-logo">Placebo</a>

@@ -52,7 +52,35 @@ function parse_emojis($text) {
     return str_replace(array_keys($map), array_values($map), $text);
 }
 
+// --- FETCH CHAT SETTINGS ---
+$c_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_locked', 'chat_slow_mode')");
+$c_conf = [];
+while($r = $c_stmt->fetch()) $c_conf[$r['setting_key']] = $r['setting_value'];
+
+$is_locked = ($c_conf['chat_locked'] ?? '0') === '1';
+$slow_sec = (int)($c_conf['chat_slow_mode'] ?? 0);
+$my_rank = $_SESSION['rank'] ?? 1;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // 0. ENFORCE LOCK
+    if ($is_locked && $my_rank < 9) {
+        die("LOCKED"); // Simple block, UI handled below
+    }
+
+    // 0.5 ENFORCE SLOW MODE
+    if ($slow_sec > 0 && $my_rank < 9) {
+        $l_stmt = $pdo->prepare("SELECT created_at FROM chat_messages WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+        $l_stmt->execute([$_SESSION['user_id']]);
+        if ($last_time = $l_stmt->fetchColumn()) {
+            $diff = time() - strtotime($last_time);
+            if ($diff < $slow_sec) {
+                // Too fast
+                 header("Location: chat_input.php?error=slow"); exit;
+            }
+        }
+    }
+
+    $msg = trim($_POST['message'] ?? '');
     $msg = trim($_POST['message'] ?? '');
     
     // Auto-inject quote
@@ -122,67 +150,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <link rel="stylesheet" href="style.css">
     <style>
-/* Use fixed height and hidden overflow to prevent any scrolling */
-        html, body { background: #0d0d0d; margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: monospace; }
+        /* FLEXBOX LAYOUT: Ensures Notification Bar pushes the Form down naturally */
+        html, body { 
+            background: #0d0d0d; margin: 0; padding: 0; height: 100%; width: 100%;
+            overflow: hidden; font-family: monospace; 
+            display: flex; flex-direction: column; 
+        }
         
         .info-bar {
-            /* Fix to the top without taking up space in the layout flow */
-            position: absolute; 
-            top: 0; 
-            left: 0; 
+            flex-shrink: 0; /* Fixed height */
             width: 100%; 
-            height: 22px; 
             background: #1a1005 !important; 
             color: #e5c07b !important; 
             border-bottom: 1px solid #e5c07b !important;
-            padding: 0 10px; 
+            padding: 5px 10px; 
             font-size: 0.65rem; 
             display: flex; 
             justify-content: space-between; 
             align-items: center;
-            z-index: 100; 
             box-sizing: border-box;
-        }
-
-        /* Ensure the form stays at the bottom of the frame regardless of the bar */
-        form { 
-            display: flex; 
-            width: 100%; 
-            height: 100%; 
-            align-items: flex-end; 
-            padding: 5px; 
-            box-sizing: border-box; 
         }
         .info-bar a { color: #fff; text-decoration: none; font-weight: bold; }
 
-        form { display: flex; width: 100%; height: 100%; align-items: center; padding: 5px; box-sizing: border-box; }
+        /* Form fills remaining space */
+        form { 
+            flex: 1; 
+            display: flex; 
+            width: 100%; 
+            align-items: center; /* Vertically Center the input */
+            padding: 5px; 
+            box-sizing: border-box; 
+        }
         input { flex: 1; background: #111; border: 1px solid #333; color: #eee; padding: 8px; font-family: inherit; outline: none; height: 30px; box-sizing: border-box; }
         input:focus { border-color: #555; background: #000; }
         button { background: #222; border: 1px solid #333; border-left: none; color: #6a9c6a; padding: 0 15px; cursor: pointer; font-weight: bold; font-size: 0.7rem; height: 30px; }
         button:hover { background: #6a9c6a; color: #000; }
     </style>
 </head>
-<body style="background: #0d0d0d; margin: 0; padding: 0; font-family: monospace;">
+<body>
 
     <?php if($link_pending): ?>
         <div class="info-bar">
             <span>[INFO] LINK DETAINED FOR MODERATION</span>
             <a href="chat_input.php">[ X ]</a>
         </div>
-        <div style="height:22px;"></div>
-    <?php endif; ?>
-
-    <form method="POST" autocomplete="off">
-        <?php if($is_reply): ?>
-            <input type="hidden" name="quote_data" value="<?= "\n[quote=" . htmlspecialchars($reply_user) . "]" . htmlspecialchars($reply_text) . "[/quote]" ?>">
-            <div style="position:absolute; top:-15px; left:45px; background:#222; color:#fff; font-size:0.6rem; padding:2px 5px; border-radius:3px 3px 0 0;">Replying to <?= htmlspecialchars($reply_user) ?>...</div>
         <?php endif; ?>
-        
-        <div style="display: flex; width: 100%;">
-            <a href="help_bbcode.php" target="_blank" style="background: #161616; color: #6a9c6a; border: 1px solid #333; border-right: none; padding: 0 10px; font-weight: bold; font-size: 1rem; display: flex; align-items: center; text-decoration: none; height: 30px; box-sizing: border-box;" title="View Codes">[?]</a>
-            <input type="text" name="message" placeholder="Type a message..." autofocus required>
-            <button type="submit">SEND</button>
+
+<?php if($is_locked && $my_rank < 9): ?>
+        <div style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; background:#1a0505; color:#e06c75; font-weight:bold; font-size:0.8rem; border:1px solid #e06c75;">
+            [ CHAT LOCKED BY ADMIN ]
         </div>
-    </form>
+    <?php else: ?>
+        <form method="POST" autocomplete="off">
+            <?php if($is_reply): ?>
+                <input type="hidden" name="quote_data" value="<?= "\n[quote=" . htmlspecialchars($reply_user) . "]" . htmlspecialchars($reply_text) . "[/quote]" ?>">
+                <div style="position:absolute; top:5px; left:10px; background:#0d0d0d; border:1px solid #d19a66; border-left: 3px solid #d19a66; color:#d19a66; font-size:0.75rem; padding:4px 10px; z-index:50; font-family:monospace; font-weight:bold;">
+                    >> REPLYING TO: <span style="color:#fff;"><?= htmlspecialchars($reply_user) ?></span>
+                </div>
+            <?php endif; ?>
+            
+            <div style="display: flex; width: 100%;">
+<a href="#help_modal" style="background: #161616; color: #6a9c6a; border: 1px solid #333; border-right: none; padding: 0 10px; font-weight: bold; font-size: 1rem; display: flex; align-items: center; text-decoration: none; height: 30px; box-sizing: border-box;" title="View Codes">[?]</a>
+            
+            <?php 
+                $ph = "Type a message...";
+                    if ($slow_sec > 0 && $my_rank < 9) $ph = "Slow Mode: {$slow_sec}s delay active."; 
+                ?>
+                <input type="text" name="message" placeholder="<?= $ph ?>" autofocus required>
+                <button type="submit">SEND</button>
+            </div>
+        </form>
+    <?php endif; ?>
+    <div id="help_modal" style="display:none;">
+        <div style="position:fixed; bottom:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9000; display:flex; flex-direction:column; padding:10px; box-sizing:border-box;">
+            <div style="flex:1; overflow-y:auto; border:1px solid #333; background:#0d0d0d; padding:10px;">
+                <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:5px; margin-bottom:5px;">
+                    <strong style="color:#6a9c6a;">BBCODE CHEATSHEET</strong>
+                    <a href="#" style="color:#e06c75; text-decoration:none;">[ CLOSE ]</a>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; font-size:0.7rem; color:#ccc;">
+                    <div>[b]B[/b] <b>Bold</b></div>
+                    <div>[i]I[/i] <em>Italic</em></div>
+                    <div>[color=red]..[/color]</div>
+                    <div>[quote]..[/quote]</div>
+                    <div>[spoiler]..[/spoiler]</div>
+                    <div>[glitch]..[/glitch]</div>
+                    <div>[rainbow]..[/rainbow]</div>
+                    <div>[shake]..[/shake]</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <style>
+        #help_modal:target { display: block !important; }
+    </style>
 </body>
 </html>

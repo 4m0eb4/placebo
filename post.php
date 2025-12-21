@@ -74,6 +74,88 @@ if ($post['min_rank'] > $my_rank) {
                 </div>
             <?php endif; ?>
         </div>
+
+        <?php
+        // 1. Handle New Comment
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['post_comment'])) {
+            $c_body = trim($_POST['comment_body']);
+            $parent = !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null;
+            
+            if ($c_body) {
+                $stmt = $pdo->prepare("INSERT INTO post_comments (post_id, user_id, parent_id, body) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$id, $_SESSION['user_id'], $parent, $c_body]);
+                // Redirect to avoid resubmission
+                header("Location: post.php?id=$id#comments"); exit;
+            }
+        }
+
+        // 2. Fetch Comments
+        $c_stmt = $pdo->prepare("
+            SELECT c.*, u.username, u.rank, u.chat_color 
+            FROM post_comments c 
+            JOIN users u ON c.user_id = u.id 
+            WHERE c.post_id = ? 
+            ORDER BY c.created_at ASC
+        ");
+        $c_stmt->execute([$id]);
+        $all_comments = $c_stmt->fetchAll();
+
+        // 3. Recursive Render Function
+        function render_comments($comments, $parent_id = null, $depth = 0) {
+            foreach ($comments as $c) {
+                if ($c['parent_id'] == $parent_id) {
+                    $margin = $depth * 20;
+                    $border_color = ($depth > 0) ? '#333' : '#444';
+                    $is_reply = isset($_GET['reply']) && $_GET['reply'] == $c['id'];
+                    
+                    echo "<div id='c{$c['id']}' style='margin-left: {$margin}px; margin-top: 10px; border-left: 2px solid $border_color; padding-left: 10px;'>
+                        <div style='display:flex; justify-content:space-between; align-items:center; background:#111; padding:5px; border:1px solid #222;'>
+                            <span style='color:{$c['chat_color']}; font-weight:bold; font-size:0.75rem;'>{$c['username']}</span>
+                            <span style='color:#555; font-size:0.65rem;'>{$c['created_at']}</span>
+                        </div>
+                        <div style='padding: 8px; color:#ccc; font-size:0.8rem; background:#0a0a0a; border:1px solid #222; border-top:none;'>
+                            " . parse_bbcode($c['body']) . "
+                            <div style='text-align:right; margin-top:5px;'>
+                                <a href='post.php?id={$c['post_id']}&reply={$c['id']}#reply_box' style='font-size:0.65rem; color:#6a9c6a; text-decoration:none;'>[ REPLY ]</a>
+                            </div>
+                        </div>
+                    </div>";
+                    
+                    render_comments($comments, $c['id'], $depth + 1);
+                }
+            }
+        }
+        ?>
+        
+        <div id="comments" style="margin-top: 30px; border-top: 1px solid #333; padding-top: 20px;">
+            <h3 style="color:#e5c07b; font-size:0.9rem; margin-bottom:15px;">ENCRYPTED CHATTER (<?= count($all_comments) ?>)</h3>
+            
+            <?php if(empty($all_comments)): ?>
+                <div style="color:#444; font-style:italic;">No signals detected on this frequency.</div>
+            <?php else: ?>
+                <?php render_comments($all_comments, null, 0); ?>
+            <?php endif; ?>
+        </div>
+
+        <div id="reply_box" style="margin-top: 30px; background: #111; border: 1px solid #333; padding: 15px;">
+            <?php 
+                $reply_id = $_GET['reply'] ?? null;
+                $reply_label = "NEW TRANSMISSION";
+                if ($reply_id) $reply_label = "REPLYING TO ID #$reply_id";
+            ?>
+            <div style="color:#6a9c6a; font-size:0.8rem; font-weight:bold; margin-bottom:10px;"><?= $reply_label ?></div>
+            
+            <form method="POST">
+                <?php if($reply_id): ?><input type="hidden" name="parent_id" value="<?= $reply_id ?>"><?php endif; ?>
+                <textarea name="comment_body" placeholder="Broadcast message..." required style="width:100%; height:80px; background:#000; color:#fff; border:1px solid #333; padding:10px; box-sizing:border-box; font-family:monospace;"></textarea>
+                <div style="margin-top:5px; text-align:right;">
+                    <?php if($reply_id): ?>
+                        <a href="post.php?id=<?= $id ?>#comments" style="color:#e06c75; font-size:0.7rem; margin-right:10px; text-decoration:none;">[ CANCEL ]</a>
+                    <?php endif; ?>
+                    <button type="submit" name="post_comment" class="btn-primary" style="width:auto; padding:5px 15px;">TRANSMIT</button>
+                </div>
+            </form>
+        </div>
         
         <div style="margin-top: 20px; text-align: center;">
             <a href="index.php" style="color: #666; font-size: 0.75rem; text-decoration: none;">&lt; RETURN TO FEED</a>

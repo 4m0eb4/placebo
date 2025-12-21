@@ -73,10 +73,12 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
                          else $error = "System Error: php-gnupg missing.";
                     }
 
-                    if ($pgp_valid && !$error) {
-                        $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
-                        $stmt->execute([$_POST['username']]);
-                        if ($stmt->fetch()) $error = "Username taken.";
+                        if ($pgp_valid && !$error) {
+                        // Strict Identity Check: No duplicate Usernames, Fingerprints, OR Keys
+                        $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ? OR pgp_fingerprint = ? OR pgp_public_key = ?");
+                        $stmt->execute([$_POST['username'], $d['fingerprint'] ?? $_POST['fingerprint'], $_POST['pgp_key']]);
+                        
+                        if ($stmt->fetch()) $error = "Identity Collision: Username or PGP Key already in use.";
                         else {
                             $state = 'CAPTCHA';
                             $_SESSION['reg_data'] = $_POST;

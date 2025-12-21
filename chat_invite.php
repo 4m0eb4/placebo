@@ -60,21 +60,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-family: monospace;
             overflow: hidden;
         }
-        /* COMPACT STYLE FIX */
+        /* ULTRA COMPACT FIX */
         .token-box { 
             background: #000; border: 1px dashed #6a9c6a; 
-            color: #6a9c6a; padding: 4px; font-size: 0.9rem; 
-            margin: 5px 0; letter-spacing: 1px; user-select: all;
+            color: #6a9c6a; padding: 2px; font-size: 0.8rem; 
+            margin: 2px 0; letter-spacing: 1px; user-select: all;
             font-weight: bold; font-family: monospace;
         }
         input[type="number"] { 
             background: #000; color: #fff; border: 1px solid #333; 
-            padding: 2px; width: 40px; text-align: center; outline: none;
-            font-family: monospace; font-size: 0.7rem; height: 20px;
+            padding: 0; width: 30px; text-align: center; outline: none;
+            font-family: monospace; font-size: 0.7rem; height: 18px;
         }
-        p { margin: 2px 0 5px 0; font-size: 0.65rem !important; }
-        .btn-primary { padding: 4px 8px !important; font-size: 0.65rem !important; width: auto !important; }
-        label { font-size: 0.65rem !important; }
+        p { margin: 0 0 5px 0; font-size: 0.6rem !important; color:#888; }
+        .btn-primary { padding: 2px 6px !important; font-size: 0.65rem !important; width: 100% !important; border-radius: 0; }
+        label { font-size: 0.6rem !important; }
+        h4 { margin: 0 0 5px 0; font-size: 0.7rem; color: #ccc; }
     </style>
 </head>
 <body>
@@ -88,17 +89,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <button type="submit" class="btn-primary" style="width: auto; padding: 10px 20px;">GENERATE NEW</button>
         </form>
 
-    <?php else: ?>
-        <p style="font-size: 0.9rem; color: #ccc;">Create Guest Access Key</p>
-        <?php if($msg): ?><div style="color:#e06c75; font-size:0.7rem; border:1px solid #e06c75; padding:5px; margin-bottom:10px;"><?= $msg ?></div><?php endif; ?>
-        
-        <form method="POST">
-            <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                <label style="color:#6a9c6a; font-size:0.7rem;">DURATION (HOURS):</label>
+<?php else: ?>
+        <div style="display:flex; flex-direction:column; gap:4px;">
+            <?php if($msg): ?><div style="color:#e06c75; font-size:0.6rem;"><?= $msg ?></div><?php endif; ?>
+            <form method="POST" style="display:flex; align-items:center; gap:5px; justify-content:center;">
+                <label style="color:#6a9c6a;">HRS:</label>
                 <input type="number" name="duration" value="1" min="1" max="24" required>
-            </div>
-            <button type="submit" class="btn-primary" style="width: 100%;">GENERATE KEY</button>
-        </form>
+                <button type="submit" class="btn-primary" style="flex:1;">GENERATE</button>
+            </form>
+        </div>
     <?php endif; ?>
 
 </body>

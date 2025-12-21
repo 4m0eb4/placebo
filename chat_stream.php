@@ -229,10 +229,48 @@ try {
     $last_pm_alert_id = null;
     $last_link_count = -1;
     $last_link_alert_id = null;
+    
+    // Pin State
+    $current_pin_hash = '';
+    $last_pin_check = 0;
 
     while (true) {
         $heartbeat++;
         $now = time();
+        
+        // -1. CHECK PINNED MESSAGE (Every ~5s)
+        if ($now - $last_pin_check >= 5) {
+            $last_pin_check = $now;
+            try {
+                $p_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'chat_pinned_msg'");
+                $pin_msg = trim($p_stmt->fetchColumn() ?? '');
+                
+                $pin_hash = md5($pin_msg);
+                if ($pin_hash !== $current_pin_hash) {
+                    $current_pin_hash = $pin_hash;
+                    // Output or Clear Pin
+                    if ($pin_msg === '') {
+                        echo "<style>#pin_banner { display: none !important; } body { padding-top: 20px !important; }</style>";
+                    } else {
+                        $parsed_pin = parse_bbcode($pin_msg);
+                        // Fixed Bar at Top
+                        echo "<style>
+                            #pin_banner { display: block !important; }
+                            body { padding-top: 50px !important; } /* Push content down */
+                        </style>";
+                        // We use a unique ID each update to force replace or just use CSS to show/hide a static container? 
+                        // Since we can't easily replace HTML in the stream, we append a new fixed div that covers the old one using z-index or ID.
+                        // Best approach: Append a new div with a unique ID that covers previous ones.
+                        $pid = "pin_" . time();
+                        echo "<div id='$pid' style='position:fixed; top:0; left:0; width:100%; background:#1a1005; border-bottom:1px solid #e5c07b; color:#e5c07b; padding:8px 10px; font-size:0.75rem; z-index:9000; box-sizing:border-box; box-shadow:0 2px 10px rgba(0,0,0,0.5);'>
+                                <strong style='color:#fff;'>[NOTICE]</strong> $parsed_pin
+                              </div>";
+                        // Hide previous pins
+                        echo "<script>var old = document.querySelectorAll('div[id^=\"pin_\"]'); for(var i=0; i<old.length-1; i++) { old[i].style.display='none'; }</script>";
+                    }
+                }
+            } catch (Exception $e) {}
+        }
 
         // 0. UPDATE PRESENCE (Every 60s)
         if ($now - $last_active_update >= 60) {
