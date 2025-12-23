@@ -19,7 +19,10 @@ if (!isset($_SESSION['fully_authenticated'])) {
         $stmt->execute([$_SESSION['user_id'] ?? 0]);
         $u = $stmt->fetch();
         if ($u) {
-            if ($u['is_banned'] == 1 || $u['force_logout'] == 1) $kill = true;
+            if ($u['is_banned'] == 1 || $u['force_logout'] == 1) {
+                $kill = true;
+                $ban_reason = $u['ban_reason'] ?? 'Connection Reset.'; // Capture reason
+            }
             if (isset($u['is_muted']) && $u['is_muted'] == 1) $_SESSION['is_muted'] = true; else unset($_SESSION['is_muted']);
             if (isset($u['slow_mode_override']) && $u['slow_mode_override'] > 0) $_SESSION['user_slow'] = (int)$u['slow_mode_override']; else unset($_SESSION['user_slow']);
         }
@@ -37,7 +40,9 @@ if ($kill) {
         form, input, button, .info-bar { display: none !important; }
     </style>";
     // Target _top breaks the iframe, sending the user to logout/index cleanly
-    echo "<a href='logout.php' target='_top' class='kill-msg'>🚫 SIGNAL LOST // EXIT</a>";
+    // Append reason if available
+    $r_txt = isset($ban_reason) ? "REASON: " . htmlspecialchars($ban_reason) : "SIGNAL LOST";
+    echo "<a href='logout.php' target='_top' class='kill-msg'>🚫 $r_txt // EXIT</a>";
     exit;
 }
 

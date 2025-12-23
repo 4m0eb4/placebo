@@ -115,15 +115,15 @@ $rank = $_SESSION['rank'] ?? 0;
         </div>
     </div>
 
-    <input type="checkbox" id="rules-modal-toggle" class="modal-toggle">
+    <input type="checkbox" id="upload-modal-toggle" class="modal-toggle">
     <div class="modal-overlay">
-        <div class="modal-box" style="height: 550px; max-width: 650px;">
-            <div class="modal-header">
-                <span>SYSTEM RULES // PROTOCOLS</span>
-                <label for="rules-modal-toggle" class="modal-close">[ CLOSE ]</label>
+        <div class="modal-box" style="height: 400px; max-width: 500px; border-color: #6a9c6a;">
+            <div class="modal-header" style="border-color: #6a9c6a;">
+                <span style="color: #6a9c6a;">UPLOAD INTERFACE</span>
+                <label for="upload-modal-toggle" class="modal-close">[ CLOSE ]</label>
             </div>
             <div class="modal-content">
-                <iframe src="rules.php" style="width:100%; height:100%; border:none;"></iframe>
+                <iframe src="upload_modal.php" style="width:100%; height:100%; border:none;"></iframe>
             </div>
         </div>
     </div>
@@ -137,6 +137,11 @@ $rank = $_SESSION['rank'] ?? 0;
             <div style="font-size: 0.75rem; font-family: monospace;">
                 <?php if (!$is_guest): ?>
                     <a href="links.php" style="color:#888; margin-right:10px; text-decoration:none;">[ LINKS ]</a>
+                    
+                    <?php if(($rank ?? 0) >= 1): ?>
+                        <a href="gallery.php" target="_blank" style="color:#888; margin-right:10px; text-decoration:none;">[ DATA ]</a>
+                    <?php endif; ?>
+
                     <a href="games.php" style="color:#888; text-decoration:none;">[ GAMES ]</a>
                 <?php endif; ?>
             </div>
@@ -175,6 +180,7 @@ $rank = $_SESSION['rank'] ?? 0;
             
             <label for="help-modal-toggle" style="
                 position: absolute; 
+                display: <?= ($is_chat_locked) ? 'none' : 'flex' ?>; 
                 top: 24px; left: 5px; 
                 width: 40px; height: 28px; /* Matches Input Height */
                 background: #111; /* Matches Input BG */
@@ -193,14 +199,21 @@ $rank = $_SESSION['rank'] ?? 0;
 
             <div class="chat-options">
                 <?php
-                // FETCH PERMS
-                $mp_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
-                $mp_conf = json_decode($mp_stmt->fetchColumn() ?: '{}', true);
+                // FETCH CONFIG & PERMS
+                $conf_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('permissions_config', 'chat_locked')");
+                $settings_map = [];
+                while($row = $conf_stmt->fetch()) { $settings_map[$row['setting_key']] = $row['setting_value']; }
+                
+                $mp_conf = json_decode($settings_map['permissions_config'] ?? '{}', true);
+                $is_chat_locked = ($settings_map['chat_locked'] ?? '0') === '1';
+                
                 $req_mod = $mp_conf['perm_view_mod_panel'] ?? 9; 
                 ?>
                 <span>OPTIONS:</span>
                 
-                <a href="help_bbcode.php" target="_blank" class="opt-btn" title="Open BBCode Manual">{bb}</a>
+                <?php if (!$is_chat_locked): ?>
+                    <a href="help_bbcode.php" target="_blank" class="opt-btn" title="Open BBCode Manual">{bb}</a>
+                <?php endif; ?>
                 
                 <label for="rules-modal-toggle" class="opt-btn">[ RULES ]</label>
                 <label for="users-modal-toggle" class="opt-btn">[ ONLINE USERS ]</label>
@@ -220,7 +233,7 @@ $rank = $_SESSION['rank'] ?? 0;
                     <?php if ($rank >= 5): ?>
                         <label for="invite-modal-toggle" class="opt-btn opt-btn-green">[ INVITE ]</label>
                     <?php endif; ?>
-                    <a href="#" class="opt-btn" style="color:#444; cursor:not-allowed;" title="Not Installed">[ UPLOAD ]</a>
+                    <label for="upload-modal-toggle" class="opt-btn" style="color:#6a9c6a; cursor:pointer;">[ UPLOAD ]</label>
                 <?php endif; ?>
                 
                 <a href="chat_input.php" target="chat_input" class="opt-btn">[ REFRESH ]</a>

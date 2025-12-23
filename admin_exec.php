@@ -16,18 +16,23 @@ $req_del  = $perms['perm_chat_delete'] ?? 5; // Re-using delete perm for Wipe
 $my_rank  = $_SESSION['rank'] ?? 0;
 
 // 3. CONFIRMATION HANDLER
-// If POST data exists but 'confirmed' is missing, show the warning screen.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirmed'])) {
     $action = '';
-    if (isset($_POST['action_ban'])) $action = 'BAN';
-    elseif (isset($_POST['action_kick'])) $action = 'KICK';
-    elseif (isset($_POST['action_nuke'])) $action = 'NUKE';
-    elseif (isset($_POST['action_unban'])) $action = 'UNBAN';
-    elseif (isset($_POST['action_wipe'])) $action = 'WIPE_MESSAGES';
-    else { header("Location: users_online.php"); exit; } // Unknown action
+    $action_key = ''; // To preserve the button name
+
+    if (isset($_POST['action_ban'])) { $action = 'BAN'; $action_key = 'action_ban'; }
+    elseif (isset($_POST['action_kick'])) { $action = 'KICK'; $action_key = 'action_kick'; }
+    elseif (isset($_POST['action_nuke'])) { $action = 'NUKE'; $action_key = 'action_nuke'; }
+    elseif (isset($_POST['action_unban'])) { $action = 'UNBAN'; $action_key = 'action_unban'; }
+    elseif (isset($_POST['action_wipe'])) { $action = 'WIPE_MESSAGES'; $action_key = 'action_wipe'; }
+    elseif (isset($_POST['action_mute'])) { $action = 'MUTE'; $action_key = 'action_mute'; }
+    elseif (isset($_POST['action_unmute'])) { $action = 'UNMUTE'; $action_key = 'action_unmute'; }
+    elseif (isset($_POST['action_slow'])) { $action = 'SLOW_MODE'; $action_key = 'action_slow'; }
+    elseif (isset($_POST['action_unslow'])) { $action = 'UNSLOW'; $action_key = 'action_unslow'; }
+    else { header("Location: users_online.php"); exit; }
 
     $target = htmlspecialchars($_POST['target_name'] ?? 'Target');
-    $color  = ($action === 'UNBAN') ? '#6a9c6a' : '#e06c75';
+    $color  = (in_array($action, ['UNBAN', 'UNMUTE', 'UNSLOW'])) ? '#6a9c6a' : '#e06c75';
     if ($action === 'WIPE_MESSAGES') $color = '#56b6c2';
     
     ?>
@@ -39,20 +44,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirmed'])) {
             <p>Are you sure you want to apply <strong><?= $action ?></strong> to user:</p>
             <h3 style="background:#000; padding:10px; border:1px solid #333;"><?= $target ?></h3>
             
-            <form method="POST" style="margin-top:20px; display:flex; justify-content:center; gap:10px;">
-                <?php foreach($_POST as $k => $v): ?>
-                    <input type="hidden" name="<?= htmlspecialchars($k) ?>" value="<?= htmlspecialchars($v) ?>">
-                <?php endforeach; ?>
-                <input type="hidden" name="confirmed" value="1">
+            <form method="POST" style="margin-top:20px; display:flex; flex-direction:column; gap:10px;">
+                <?php foreach($_POST as $k => $v): 
+                    // Don't duplicate the action button itself, we handle it via hidden input below
+                    if($k !== $action_key) echo '<input type="hidden" name="'.htmlspecialchars($k).'" value="'.htmlspecialchars($v).'">';
+                endforeach; ?>
                 
-                <button type="submit" style="background:<?= $color ?>; color:#000; border:none; padding:10px 20px; font-weight:bold; cursor:pointer;">YES, EXECUTE</button>
-                <a href="<?= htmlspecialchars($_POST['return_to'] ?? 'mod_panel.php') ?>" style="display:inline-block; padding:10px 20px; background:#333; color:#fff; text-decoration:none; font-size:0.8rem;">CANCEL</a>
+                <input type="hidden" name="confirmed" value="1">
+                <input type="hidden" name="<?= $action_key ?>" value="1"> <?php if($action === 'BAN'): ?>
+                    <input type="text" name="ban_reason" placeholder="Reason (Optional)" style="background:#000; color:#fff; border:1px solid #333; padding:5px; width:100%; box-sizing:border-box;">
+                <?php endif; ?>
+
+                <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">
+                    <button type="submit" style="background:<?= $color ?>; color:#000; border:none; padding:10px 20px; font-weight:bold; cursor:pointer;">YES, EXECUTE</button>
+                    <a href="<?= htmlspecialchars($_POST['return_to'] ?? 'mod_panel.php') ?>" style="display:inline-block; padding:10px 20px; background:#333; color:#fff; text-decoration:none; font-size:0.8rem;">CANCEL</a>
+                </div>
             </form>
         </div>
     </body>
     </html>
     <?php
-    exit; // Stop here to show the confirmation
+    exit;
 }
 
 // 4. EXECUTION HANDLER (Confirmed = 1)
@@ -74,8 +86,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed'])) {
     // --- BAN ---
     if (isset($_POST['action_ban'])) {
         if ($my_rank < $req_ban) die("ACCESS DENIED");
-        $pdo->prepare("UPDATE users SET is_banned = 1, force_logout = 1 WHERE id = ?")->execute([$tid]);
-        $act = "BANNED User #$tid";
+        $reason = trim($_POST['ban_reason'] ?? '');
+        if(empty($reason)) $reason = "Violated System Protocols";
+        
+        $pdo->prepare("UPDATE users SET is_banned = 1, force_logout = 1, ban_reason = ? WHERE id = ?")->execute([$reason, $tid]);
+        $act = "BANNED User #$tid (Reason: $reason)";
     }
 
     // --- UNBAN ---

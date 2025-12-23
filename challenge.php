@@ -18,17 +18,30 @@ try {
 } catch (Exception $e) {}
 
 $pgp_msg = $custom_msg . "\n\nCHALLENGE TOKEN: " . $_SESSION['auth_token'];
-$encrypted_block = "--- PGP ENCRYPTION FAILED (INSTALL PHP-GNUPG) ---\n" . $pgp_msg; // Fallback
+$encrypted_block = "--- PGP ENCRYPTION FAILED ---\n" . $pgp_msg; // Fallback default
 
-if (class_exists('gnupg')) {
+// ROBUST PGP ENCRYPTION
+if (class_exists('gnupg') && isset($_SESSION['pgp_key']) && !empty($_SESSION['pgp_key'])) {
     try {
+        // Ensure env is safe
         putenv("GNUPGHOME=/tmp");
         $gpg = new gnupg();
+        // Disable exceptions for cleaner fallback handling or keep them if you prefer logging
         $gpg->seterrormode(gnupg::ERROR_EXCEPTION);
+        
         $info = $gpg->import($_SESSION['pgp_key']);
-        $gpg->addencryptkey($info['fingerprint']);
-        $encrypted_block = $gpg->encrypt($pgp_msg);
-    } catch (Exception $e) { $error = "PGP Error: " . $e->getMessage(); }
+        
+        if (isset($info['fingerprint'])) {
+            $gpg->addencryptkey($info['fingerprint']);
+            $enc = $gpg->encrypt($pgp_msg);
+            if ($enc) {
+                $encrypted_block = $enc;
+            }
+        }
+    } catch (Exception $e) { 
+        // Silent fail to text mode, or set error
+        $error = "PGP Error: " . $e->getMessage(); 
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
