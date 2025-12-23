@@ -37,7 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $rid = (int)$_POST['revoke_id'];
             $stmt_rev = $pdo->prepare("UPDATE guest_tokens SET status='revoked' WHERE id=? AND created_by=?");
             $stmt_rev->execute([$rid, $_SESSION['user_id']]);
-            $msg = "UPLINK TERMINATED.";
+            // Redirect back to list immediately to refresh view
+            header("Location: users_online.php"); 
+            exit;
         } catch (Exception $e) { $msg = "DB Error: Token table invalid."; }
     }
     // --- ACTION: PURGE EXPIRED TOKENS ---
@@ -210,11 +212,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <?php if (empty($my_guests)): ?>
                 <div style="color: #555; font-size: 0.7rem; font-style: italic; margin-bottom: 10px;">No active guest sessions.</div>
-                <form method="POST">
-                    <button type="submit" name="purge_tokens" class="btn-primary" style="width:auto; padding:5px 10px; font-size:0.6rem; border-color:#444;">CLEAR EXPIRED GRAVEYARD</button>
-                </form>
             <?php else: ?>
-                <div style="display: grid; gap: 10px;">
+                <div style="display: grid; gap: 10px; margin-bottom: 20px;">
                 <?php foreach($my_guests as $g): ?>
                     <?php 
                         $remain = 0;
@@ -238,6 +237,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php endforeach; ?>
                 </div>
             <?php endif; ?>
+
+            <div style="border-top: 1px dashed #333; padding-top: 15px; margin-top: 10px;">
+                <button type="submit" name="purge_tokens" class="btn-primary" style="width:100%; padding:10px; font-size:0.7rem; background:#0d0d0d; border-color:#444; color:#666;">[ PURGE EXPIRED / DEAD TOKENS ]</button>
+            </div>
 
         </form>
         <?php if($msg): ?><div style="margin-top:15px; text-align:center; font-size:0.8rem;" class="<?= strpos($msg, 'ERROR')!==false ? 'error' : 'success' ?>"><?= $msg ?></div><?php endif; ?>

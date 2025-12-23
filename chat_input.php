@@ -58,17 +58,18 @@ function parse_emojis($text) {
 }
 
 // --- FETCH CHAT SETTINGS ---
-$c_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_locked', 'chat_slow_mode')");
+$c_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_locked', 'chat_slow_mode', 'chat_lock_req')");
 $c_conf = [];
 while($r = $c_stmt->fetch()) $c_conf[$r['setting_key']] = $r['setting_value'];
 
 $is_locked = ($c_conf['chat_locked'] ?? '0') === '1';
-$slow_sec = (int)($c_conf['chat_slow_mode'] ?? 0);
-$my_rank = $_SESSION['rank'] ?? 1;
+$lock_req  = (int)($c_conf['chat_lock_req'] ?? 9); // Default to Admin (9)
+$slow_sec  = (int)($c_conf['chat_slow_mode'] ?? 0);
+$my_rank   = $_SESSION['rank'] ?? 1;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 0. ENFORCE LOCK
-    if ($is_locked && $my_rank < 9) {
+    if ($is_locked && $my_rank < $lock_req) {
         die("LOCKED"); // Simple block, UI handled below
     }
 
@@ -95,24 +96,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = $msg . $_POST['quote_data'];
     }
 if (!empty($msg)) {
-        // 3.5 COMMAND INTERCEPT (Game & Action Logic)
+// 3.5 COMMAND INTERCEPT (Game & Action Logic)
         if (str_starts_with($msg, '/')) {
             // /me Action
             if (preg_match('#^/me\s+(.+)$#is', $msg, $m)) {
                 $msg = "[me]" . trim($m[1]) . "[/me]";
             }
             // /cointoss
-        elseif (preg_match('#^/cointoss#i', $msg)) {
+            elseif (preg_match('#^/cointoss#i', $msg)) {
                 $res = (random_int(0, 1) === 1) ? 'HEADS' : 'TAILS';
                 $c_code = ($res === 'HEADS') ? '#e5c07b' : '#98c379'; 
-                $msg = "[coin][color={$c_code}][b]{$res}[/b][/color][/coin]";
+                $msg = "[i]You flipped a coin and landed on [color={$c_code}][b]{$res}[/b][/color][/i]";
             }
             // /roll [max]
-elseif (preg_match('#^/roll(\s+(\d+))?#i', $msg, $m)) {
+            elseif (preg_match('#^/roll(\s+(\d+))?#i', $msg, $m)) {
                 $max = isset($m[2]) ? (int)$m[2] : 100;
                 if ($max < 1) $max = 100;
                 $val = random_int(1, $max);
                 $msg = "[roll]Rolled [b]{$val}[/b] (1-{$max})[/roll]";
+            }
+            // /8ball [question]
+            elseif (preg_match('#^/8ball\s+(.+)$#i', $msg, $m)) {
+                $opt = ["It is certain.", "Without a doubt.", "Yes - definitely.", "Most likely.", "Ask again later.", "Better not tell you now.", "Don't count on it.", "My sources say no.", "Very doubtful."];
+                $ans = $opt[array_rand($opt)];
+                $msg = "[color=#56b6c2][b]🎱 8-BALL:[/b] " . htmlspecialchars($m[1]) . "[/color]\n[color=#ccc]>> " . $ans . "[/color]";
+            }
+            // /decide [opt1] [opt2]
+            elseif (preg_match('#^/decide\s+(.+)$#i', $msg, $m)) {
+                $opts = preg_split('/\s+/', trim($m[1]));
+                $ch = $opts[array_rand($opts)];
+                $msg = "[color=#e5c07b][b]⚖️ DECISION:[/b] I choose... " . htmlspecialchars($ch) . "[/color]";
+            }
+            // /reverse [text]
+            elseif (preg_match('#^/reverse\s+(.+)$#i', $msg, $m)) {
+                $rev = strrev(trim($m[1]));
+                $msg = "&#8238;" . htmlspecialchars($rev); // RTL Override for visual reverse
+            }
+// /whisper <user> <msg> (INLINE VERSION)
+            elseif (preg_match('#^/whisper\s+"?([^"\s]+)"?\s+(.+)$#is', $msg, $m)) {
+                $t_user = trim($m[1]);
+                $t_msg = trim($m[2]);
+                $target_id = null;
+
+                // Find Target (User or Guest)
+                $stmt_u = $pdo->prepare("SELECT id FROM users WHERE username = ? UNION SELECT id FROM guest_tokens WHERE guest_username = ? AND status='active'");
+                $stmt_u->execute([$t_user, $t_user]);
+                $target_id = $stmt_u->fetchColumn();
+
+                if ($target_id) {
+                    $t_type = 'user';
+                    // Check if it was actually a guest we found
+                    $chk_g = $pdo->prepare("SELECT id FROM guest_tokens WHERE guest_username = ? AND status='active'");
+                    $chk_g->execute([$t_user]);
+                    if($chk_g->fetchColumn()) $t_type = 'guest';
+
+                    $color = (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) ? ($_SESSION['guest_color'] ?? '#888888') : '#888888';
+                    if (!isset($_SESSION['is_guest'])) {
+                        $stmt_c = $pdo->prepare("SELECT chat_color FROM users WHERE id = ?");
+                        $stmt_c->execute([$_SESSION['user_id']]);
+                        $color = $stmt_c->fetchColumn() ?: '#888888';
+                    }
+
+                    $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, target_id, target_type, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, ?, 'whisper')");
+                    $stmt->execute([$_SESSION['user_id'] ?? $_SESSION['guest_token_id'], $target_id, $t_type, $_SESSION['username'], $t_msg, $_SESSION['rank'] ?? 0, $color]);
+                }
+                header("Location: chat_input.php"); exit;
             }
         }
 

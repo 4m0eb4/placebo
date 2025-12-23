@@ -74,7 +74,7 @@ try {
 $active_guests = [];
 try {
     $stmt_g = $pdo->prepare("
-        SELECT guest_username as username, '#888888' as color_hex
+        SELECT id, guest_username as username, '#888888' as color_hex
         FROM guest_tokens 
         WHERE last_active > (NOW() - INTERVAL 5 MINUTE)
         AND status = 'active'
@@ -232,7 +232,7 @@ try {
                 </div>
 
                 <div class="actions-col">
-<?php if($u['id'] != $my_id): ?>
+                    <?php if($u['id'] != $my_id): ?>
                         <a href="pm.php?to=<?= $u['id'] ?>" target="_blank" class="btn">PM</a>
                     <?php endif; ?>
 
@@ -250,12 +250,17 @@ try {
 
                     <?php if($my_rank >= $req_kick && $u['rank'] < $my_rank): ?>
                          <form action="admin_exec.php" method="POST" style="display:flex; align-items:center; gap:3px; margin:0;">
-                            <input type="hidden" name="target_user_id" value="<?= $u['id'] ?>">
+                            <input type="hidden" name="target_id" value="<?= $u['id'] ?>">
+                            <input type="hidden" name="target_name" value="<?= htmlspecialchars($u['username']) ?>">
+                            <input type="hidden" name="return_to" value="users_online.php">
+                            
                             <button type="submit" name="action_kick" class="btn btn-kill" title="Kick">K</button>
+                            <button type="submit" name="action_mute" class="btn btn-kill" style="color:#e5c07b; border-color:#e5c07b;" title="Mute">M</button>
+                            <button type="submit" name="action_slow" class="btn btn-kill" style="color:#56b6c2; border-color:#56b6c2;" title="Slow">S</button>
                             
                             <?php if($my_rank >= $req_ban): ?>
                                 <label style="font-size:0.5rem; color:#555; display:flex; align-items:center; margin-left:3px;">
-                                    <input type="checkbox" name="confirm" required style="margin:0 2px;">?
+                                    <input type="checkbox" name="confirmed" value="1" title="Check to bypass confirm" style="margin:0 2px;">
                                 </label>
                                 <button type="submit" name="action_ban" class="btn btn-kill" title="Ban">B</button>
                             <?php endif; ?>
@@ -284,8 +289,8 @@ try {
 
                 <div class="actions-col">
                     <?php if($my_rank >= 9): ?>
-                        <form action="admin_exec.php" method="POST" style="display:inline; margin:0;">
-                            <input type="hidden" name="target_guest_name" value="<?= htmlspecialchars($g['username']) ?>">
+                        <form action="settings.php" method="POST" style="display:inline; margin:0;">
+                            <input type="hidden" name="revoke_id" value="<?= $g['id'] ?>">
                             <button type="submit" class="btn btn-kill" onclick="return confirm('KILL CONNECTION?');">KILL</button>
                         </form>
                     <?php endif; ?>

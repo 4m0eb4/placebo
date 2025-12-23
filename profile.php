@@ -119,7 +119,8 @@ $rank_color = match((int)$profile['rank']) {
                     <h4 style="color: #e06c75; margin-top: 0;">ADMIN CONTROL</h4>
                     <form method="POST" action="admin_exec.php" style="display:flex; flex-wrap:wrap; gap: 10px;">
                         <input type="hidden" name="target_id" value="<?= $id ?>">
-                        <input type="hidden" name="return_to" value="profile.php?id=<?= $id ?>">
+                        <input type="hidden" name="target_name" value="<?= htmlspecialchars($profile['username']) ?>">
+                        <input type="hidden" name="return_to" value="users_online.php">
 
                         <?php if($profile['is_muted']): ?>
                             <button type="submit" name="action_unmute" class="btn-primary" style="width:auto; background:#1a1a05; color:#e5c07b; border-color:#e5c07b;">[ UNMUTE ]</button>
@@ -133,14 +134,7 @@ $rank_color = match((int)$profile['rank']) {
                             <button type="submit" name="action_slow" class="btn-primary" style="width:auto; background:#05101a; color:#56b6c2; border-color:#56b6c2;">[ SLOW 15s ]</button>
                         <?php endif; ?>
                         
-                        <?php if($my_rank >= $perm_ban): ?>
-                        <button type="submit" name="action_ban" class="btn-primary" style="width:auto; background: #3e1b1b; color: #e06c75; border-color: #e06c75;" onclick="return confirm('CONFIRM BAN?');">[ BAN ]</button>
-                        <?php endif; ?>
-
-                        <?php if($my_rank >= $perm_nuke): ?>
-                        <button type="submit" name="action_nuke" class="btn-primary" style="width:auto; background: #000; color: #666; border-color: #444;" onclick="return confirm('PERMANENTLY DELETE ACCOUNT?');">[ NUKE ]</button>
-                        <?php endif; ?>
-                    </form>
+                        </form>
                 </div>
             <?php endif; ?>
 

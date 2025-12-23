@@ -17,7 +17,8 @@ $my_rank = $_SESSION['rank'] ?? 1;
 // 2. Fetch Posts (Pinned > Weight > Date)
 // We use a try-catch block to handle cases where DB columns might be missing
 try {
-    $sql = "SELECT p.*, u.username 
+    $sql = "SELECT p.*, u.username, 
+            (SELECT COALESCE(SUM(vote_val), 0) FROM votes WHERE target_type='post' AND target_id=p.id) as score
             FROM posts p 
             JOIN users u ON p.user_id = u.id 
             WHERE p.min_rank <= ? 
@@ -26,7 +27,7 @@ try {
     $stmt->execute([$my_rank]);
 } catch (Exception $e) {
     // Fallback Query (Old sorting)
-    $sql = "SELECT p.*, u.username 
+    $sql = "SELECT p.*, u.username, 0 as score
             FROM posts p 
             JOIN users u ON p.user_id = u.id 
             WHERE p.min_rank <= ? 
@@ -71,17 +72,8 @@ $posts = $stmt->fetchAll();
             line-height: 1.5;
         }
         
-        /* Fade effect at the bottom */
-        .preview-fade {
-            position: absolute; 
-            bottom: 0; 
-            left: 0; 
-            right: 0; 
-            height: 50px; 
-            background: linear-gradient(to bottom, transparent, #121212);
-            pointer-events: none;
-        }
-
+        /* Fade effect REMOVED */
+        
         .blog-title { color: #e0e0e0; font-size: 1.1rem; font-weight: bold; margin-bottom: 5px; }
         .blog-meta { color: #555; font-size: 0.7rem; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 10px; }
         .badge-rank { display:inline-block; padding:2px 6px; font-size:0.6rem; border:1px solid #333; border-radius:3px; margin-left:10px; color:#d19a66; }
@@ -152,6 +144,14 @@ $posts = $stmt->fetchAll();
                             <?= $pin_icon . htmlspecialchars($display_title) ?>
                         </a>
                         <?= $clearance_label ?>
+                        
+                        <?php 
+                            $s_val = (int)$p['score']; 
+                            $s_col = ($s_val > 0) ? '#6a9c6a' : (($s_val < 0) ? '#e06c75' : '#444');
+                        ?>
+                        <span style="float:right; color:<?= $s_col ?>; font-family:monospace; font-size:0.8rem; font-weight:bold;">
+                            [<?= ($s_val > 0 ? '+' : '') . $s_val ?>]
+                        </span>
                     </div>
                     
                     <?php if(isset($_SESSION['rank']) && $_SESSION['rank'] >= 9): ?>
@@ -168,12 +168,11 @@ $posts = $stmt->fetchAll();
                     <div style="overflow-wrap: anywhere;">
                         <?= parse_bbcode($p['body']) ?>
                     </div>
-                    <div class="preview-fade"></div>
                 </div>
 
                 <div style="margin-top: 5px;">
                     <a href="post.php?id=<?= $p['id'] ?>" style="color: #6a9c6a; font-size: 0.8rem; font-weight: bold; text-decoration:none;">
-                        [ ACCESS TRANSMISSION ]
+                        [View Post]
                     </a>
                 </div>
             </div>

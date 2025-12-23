@@ -316,6 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_POST['save_chat_config'])) {
             $upd = [
                 'chat_locked' => isset($_POST['chat_locked']) ? '1' : '0',
+                'chat_lock_req' => (int)$_POST['chat_lock_req'], // New Setting
                 'chat_slow_mode' => (int)$_POST['chat_slow_mode'],
                 'chat_pinned_msg' => trim($_POST['chat_pinned_msg']),
                 'chat_pin_style' => $_POST['chat_pin_style'] ?? 'INFO',
@@ -608,7 +609,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'perm_view_logs' => (int)$_POST['p_logs'],
                 'perm_manage_users' => (int)$_POST['p_users'],
                 'perm_chat_config' => (int)$_POST['p_chat_conf'],
-                'perm_view_mod_panel' => (int)$_POST['p_mod_panel']
+                'perm_view_mod_panel' => (int)$_POST['p_mod_panel'],
+                'perm_view_directory' => (int)$_POST['p_dir'],
+                'perm_send_pm' => (int)$_POST['p_pm']
             ];
             $json = json_encode($perms);
             $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('permissions_config', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$json, $json]);
@@ -879,16 +882,16 @@ if ($tab === 'logs') {
         
         <div style="margin-bottom:15px; display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">
             <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
-                <strong style="color:#61afef; display:block; margin-bottom:5px;">PRESET: GHOST BLUE</strong>
-                <code>font-style:italic; opacity:0.8; [color=#61afef]{u}[/color]</code>
+                <strong style="color:#8e44ad; display:block; margin-bottom:5px;">PRESET: VIOLET GLOW</strong>
+                <code>color:#8e44ad; text-shadow:0 0 10px #8e44ad; font-weight:bold;</code>
             </div>
             <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
-                <strong style="color:#98c379; display:block; margin-bottom:5px;">PRESET: PROTOCOL</strong>
-                <code>color:#98c379; text-transform:uppercase; letter-spacing:1px;</code>
+                <strong style="color:#e06c75; display:block; margin-bottom:5px;">PRESET: CYBER GLITCH</strong>
+                <code>[glitch][color=#e06c75][b]{u}[/b][/color][/glitch]</code>
             </div>
             <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
-                <strong style="color:#d19a66; display:block; margin-bottom:5px;">PRESET: TERMINAL</strong>
-                <code>color:#d19a66; border-bottom:1px solid #444;</code>
+                <strong style="color:#98c379; display:block; margin-bottom:5px;">PRESET: RAINBOW MATRIX</strong>
+                <code>[rainbow][cmd]{u}[/cmd][/rainbow]</code>
             </div>
         </div>
         <table class="data-table">
@@ -961,10 +964,10 @@ if ($tab === 'logs') {
                             </button>
 
                             <div style="display:flex; align-items:center; background:#111; border:1px solid #333; height:24px; padding:0 4px;">
-                                <input type="checkbox" name="confirm_del" title="Tick to Delete" style="margin:0 4px 0 0; vertical-align:middle;">
-                                <button type="submit" name="delete_user" title="Delete Permanently" 
-                                        style="border:none; background:none; color:#888; cursor:pointer; font-weight:bold; font-size:0.65rem; padding:0; line-height:24px;">
-                                    DEL
+                                <input type="checkbox" name="confirm_del" title="Tick to Confirm Wipe" style="margin:0 4px 0 0; vertical-align:middle;">
+                                <button type="submit" name="delete_user" title="Wipe User Data" 
+                                        style="border:none; background:none; color:#e06c75; cursor:pointer; font-weight:bold; font-size:0.65rem; padding:0; line-height:24px;">
+                                    WIPE
                                 </button>
                             </div>
                         <?php endif; ?>
@@ -1047,8 +1050,12 @@ if ($tab === 'logs') {
                 <div>
                     <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin-bottom:15px; color:#e06c75; font-weight:bold;">
                         <input type="checkbox" name="chat_locked" value="1" <?= ($settings['chat_locked']??'0')=='1' ? 'checked' : '' ?>>
-                        LOCK CHAT (ADMIN ONLY)
+                        LOCK CHAT SIGNAL
                     </label>
+                    <div class="input-group">
+                        <label>Lock Bypass Rank (Min)</label>
+                        <input type="number" name="chat_lock_req" value="<?= $settings['chat_lock_req'] ?? 9 ?>" min="1" max="10" style="width:100px;">
+                    </div>
                     <div class="input-group">
                         <label>Slow Mode (Seconds)</label>
                         <input type="number" name="chat_slow_mode" value="<?= $settings['chat_slow_mode'] ?? 0 ?>" min="0" style="width:100px;">
@@ -1465,6 +1472,10 @@ if ($tab === 'logs') {
                     <input type="number" name="p_post" value="<?= $cur_perms['perm_create_post'] ?? 9 ?>" min="1" max="10">
                 </div>
                 <div class="input-group" style="margin:0;">
+                    <label>SEND PMs</label>
+                    <input type="number" name="p_pm" value="<?= $cur_perms['perm_send_pm'] ?? 1 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
                     <label>BYPASS LINKS</label>
                     <input type="number" name="p_link" value="<?= $cur_perms['perm_link_bypass'] ?? 9 ?>" min="1" max="10">
                 </div>
@@ -1488,6 +1499,10 @@ if ($tab === 'logs') {
                 <div class="input-group" style="margin:0;">
                     <label style="color:#e06c75;">MOD PANEL ACCESS</label>
                     <input type="number" name="p_mod_panel" value="<?= $cur_perms['perm_view_mod_panel'] ?? 9 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#6a9c6a;">VIEW DIRECTORY</label>
+                    <input type="number" name="p_dir" value="<?= $cur_perms['perm_view_directory'] ?? 3 ?>" min="1" max="10">
                 </div>
                 
                 <div class="input-group" style="margin:0;">

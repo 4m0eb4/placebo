@@ -13,6 +13,10 @@ if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); e
 
 // Fetch Post
 $id = $_GET['id'] ?? 0;
+
+// Update Views (Try/Catch to prevent crash if column missing)
+try { $pdo->prepare("UPDATE posts SET views = views + 1 WHERE id = ?")->execute([$id]); } catch(Exception $e){}
+
 $stmt = $pdo->prepare("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?");
 $stmt->execute([$id]);
 $post = $stmt->fetch();
@@ -178,6 +182,8 @@ while($r = $stmt_mv->fetch()) { $my_comment_votes[$r['target_id']] = $r['vote_va
                 TRANSMISSION BY: <span style="color:var(--accent-secondary);"><?= htmlspecialchars($post['username']) ?></span> 
                 <span style="margin: 0 10px;">|</span> 
                 DATE: <?= $post['created_at'] ?>
+                <span style="margin: 0 10px;">|</span> 
+                VIEWS: <span style="color:#ccc;"><?= number_format($post['views'] ?? 0) ?></span>
             </div>
             
             <div style="line-height: 1.6; color: var(--text-main); font-family: inherit; font-size: 0.9rem; overflow-wrap: anywhere; word-break: break-word;">
@@ -288,7 +294,7 @@ while($r = $stmt_mv->fetch()) { $my_comment_votes[$r['target_id']] = $r['vote_va
             
             <form method="POST">
                 <?php if($reply_id): ?><input type="hidden" name="parent_id" value="<?= $reply_id ?>"><?php endif; ?>
-                <textarea name="comment_body" placeholder="Broadcast message..." required style="width:100%; height:80px; background:#000; color:#fff; border:1px solid #333; padding:10px; box-sizing:border-box; font-family:monospace;"></textarea>
+                <input type="text" name="comment_body" placeholder="Broadcast message... (Press Enter)" required autocomplete="off" style="width:100%; height:45px; background:#000; color:#fff; border:1px solid #333; padding:0 15px; box-sizing:border-box; font-family:monospace;">
                 <div style="margin-top:5px; text-align:right;">
                     <?php if($reply_id): ?>
                         <a href="post.php?id=<?= $id ?>#comments" style="color:#e06c75; font-size:0.7rem; margin-right:10px; text-decoration:none;">[ CANCEL ]</a>

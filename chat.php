@@ -89,6 +89,19 @@ $rank = $_SESSION['rank'] ?? 0;
         </div>
     </div>
 
+    <input type="checkbox" id="directory-modal-toggle" class="modal-toggle">
+    <div class="modal-overlay">
+        <div class="modal-box" style="height: 600px; max-width: 850px;">
+            <div class="modal-header">
+                <span>USER DIRECTORY</span>
+                <label for="directory-modal-toggle" class="modal-close">[ CLOSE ]</label>
+            </div>
+            <div class="modal-content">
+                <iframe src="users_list.php" style="width:100%; height:100%; border:none;"></iframe>
+            </div>
+        </div>
+    </div>
+
     <input type="checkbox" id="mod-modal-toggle" class="modal-toggle">
     <div class="modal-overlay">
         <div class="modal-box" style="height: 500px; max-width: 550px; border-color: #e06c75;">
@@ -98,6 +111,19 @@ $rank = $_SESSION['rank'] ?? 0;
             </div>
             <div class="modal-content">
                 <iframe name="mod_frame" src="mod_panel.php" style="width:100%; height:100%; border:none;"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <input type="checkbox" id="rules-modal-toggle" class="modal-toggle">
+    <div class="modal-overlay">
+        <div class="modal-box" style="height: 550px; max-width: 650px;">
+            <div class="modal-header">
+                <span>SYSTEM RULES // PROTOCOLS</span>
+                <label for="rules-modal-toggle" class="modal-close">[ CLOSE ]</label>
+            </div>
+            <div class="modal-content">
+                <iframe src="rules.php" style="width:100%; height:100%; border:none;"></iframe>
             </div>
         </div>
     </div>
@@ -176,11 +202,19 @@ $rank = $_SESSION['rank'] ?? 0;
                 
                 <a href="help_bbcode.php" target="_blank" class="opt-btn" title="Open BBCode Manual">{bb}</a>
                 
-                <label for="users-modal-toggle" class="opt-btn">[ USERS ]</label>
+                <label for="rules-modal-toggle" class="opt-btn">[ RULES ]</label>
+                <label for="users-modal-toggle" class="opt-btn">[ ONLINE USERS ]</label>
                 
-                <?php if ($rank >= $req_mod): ?>
-                    <label for="mod-modal-toggle" class="opt-btn" style="color:#e06c75;">[ MOD MENU ]</label>
+                <?php 
+                // Fetch dynamic permission requirement (re-using existing config fetch if available, or defaulting)
+                $req_dir_view = $mp_conf['perm_view_directory'] ?? 3; 
+                ?>
+
+                <?php if ($rank >= $req_dir_view): ?>
+                    <label for="directory-modal-toggle" class="opt-btn" style="color:#d19a66;">[ DIRECTORY ]</label>
                 <?php endif; ?>
+                
+                
 
                 <?php if (!$is_guest): ?>
                     <?php if ($rank >= 5): ?>

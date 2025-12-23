@@ -50,10 +50,11 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
                 if ($is_banned) {
                     $error = "Username contains restricted keywords.";
                 } else {
-                    // --- PGP CHECK ---
+                    // --- PGP CHECK (SOFT FALLBACK) ---
                     $pgp_valid = false;
                     $clean_fing = strtoupper(str_replace([' ', '0x'], '', $_POST['fingerprint']));
 
+                    // 1. Check if extension exists
                     if (class_exists('gnupg')) {
                         try {
                             putenv("GNUPGHOME=/tmp");
@@ -69,14 +70,19 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
                             } else $error = "Invalid PGP Key.";
                         } catch (Exception $e) { $error = "PGP Error. Check server logs."; }
                     } else {
-                         if (strpos($_POST['pgp_key'], 'BEGIN PGP PUBLIC KEY BLOCK') !== false) $pgp_valid = true; 
-                         else $error = "System Error: php-gnupg missing.";
+                         // 2. Fallback: Check for Header & Trust User Fingerprint
+                         if (strpos($_POST['pgp_key'], 'BEGIN PGP PUBLIC KEY BLOCK') !== false) {
+                             $pgp_valid = true; 
+                             // We trust the entered fingerprint since we can't extract it manually without the extension
+                         } else {
+                             $error = "Invalid PGP Block. Must contain 'BEGIN PGP PUBLIC KEY BLOCK'.";
+                         }
                     }
 
-                        if ($pgp_valid && !$error) {
+if ($pgp_valid && !$error) {
                         // Strict Identity Check: No duplicate Usernames, Fingerprints, OR Keys
                         $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ? OR pgp_fingerprint = ? OR pgp_public_key = ?");
-                        $stmt->execute([$_POST['username'], $d['fingerprint'] ?? $_POST['fingerprint'], $_POST['pgp_key']]);
+                        $stmt->execute([$_POST['username'], $_POST['fingerprint'], $_POST['pgp_key']]);
                         
                         if ($stmt->fetch()) $error = "Identity Collision: Username or PGP Key already in use.";
                         else {
@@ -84,7 +90,17 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
                             $_SESSION['reg_data'] = $_POST;
                             $_SESSION['grid_seed'] = time();
                             $_SESSION['captcha_time'] = time();
-                            $_SESSION['captcha_req'] = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+                            
+                            // Ensure captcha variables exist before calling
+                            $p_pal = $palette ?? [];
+                            $p_min = $min_sum ?? 1;
+                            $p_max = $max_sum ?? 5;
+                            $p_a_min = $active_min ?? 1;
+                            $p_a_max = $active_max ?? 3;
+                            
+                            $captcha_data = generate_deterministic_grid($palette, $gridW, $gridH, $min_sum, $max_sum, $active_min, $active_max);
+                            $_SESSION['captcha_grid'] = $captcha_data['grid'];
+                            $_SESSION['captcha_req'] = $captcha_data['req'];
                         }
                     }
                 }
@@ -100,31 +116,46 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
             } else {
                 // --- DYNAMIC GRID CHECK ---
                 $sel = $_POST['cells'] ?? [];
-                srand($_SESSION['grid_seed']);
+                $map = $_SESSION['captcha_grid'] ?? [];
+                $req = $_SESSION['captcha_req'] ?? [];
                 
-                $map = []; 
-                $keys = array_keys($palette);
-                for($r=0; $r<$gridH; $r++) {
-                    for($c=0; $c<$gridW; $c++) {
-                        $map[$r][$c] = $keys[array_rand($keys)];
+                $fail = false; 
+                $tally = [];
+                
+                if (empty($map) || empty($req)) {
+                    $fail = true;
+                } else {
+                    foreach($sel as $p) {
+                        $coords = explode('-', $p);
+                        if(count($coords) === 2) {
+                            $r = (int)$coords[0];
+                            $c = (int)$coords[1];
+                            if (isset($map[$r][$c])) {
+                                $col = $map[$r][$c];
+                                if(!isset($tally[$col])) $tally[$col] = 0;
+                                $tally[$col]++;
+                                // If they clicked a color not in the requirements
+                                if(!isset($req[$col])) $fail = true;
+                            }
+                        }
+                    }
+                    // Check if totals match the requirements exactly
+                    if(!$fail) {
+                        foreach($req as $color => $count) {
+                            if(($tally[$color] ?? 0) !== $count) {
+                                $fail = true;
+                                break;
+                            }
+                        }
                     }
                 }
-                
-                $fail=false; $tally=[]; $req=$_SESSION['captcha_req'];
-                foreach($sel as $p) {
-                    $x = explode('-',$p);
-                    if(isset($map[(int)$x[0]][(int)$x[1]])) {
-                        $col = $map[(int)$x[0]][(int)$x[1]];
-                        if(!isset($tally[$col])) $tally[$col]=0; $tally[$col]++;
-                        if(!isset($req[$col])) $fail=true;
-                    }
-                }
-                if(!$fail) foreach($req as $k=>$v) if(($tally[$k]??0)!==$v) $fail=true;
 
                 if($fail) {
-                    $error="Pattern Failed. New Grid.";
-                    $_SESSION['grid_seed']=time(); $_SESSION['captcha_time']=time();
-                    $_SESSION['captcha_req']=get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+                    $error = "Pattern Failed. New Grid.";
+                    $_SESSION['captcha_time'] = time();
+                    $captcha_data = generate_deterministic_grid($palette, $gridW, $gridH, $min_sum, $max_sum, $active_min, $active_max);
+                    $_SESSION['captcha_grid'] = $captcha_data['grid'];
+                    $_SESSION['captcha_req'] = $captcha_data['req'];
                 } else {
                     $d = $_SESSION['reg_data'];
                     $hash = password_hash($d['password'], PASSWORD_ARGON2ID);

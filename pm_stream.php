@@ -190,8 +190,23 @@ function render_pm($row, $my_id, $target_name) {
         }
 
         // --- C. CHECK NEW MESSAGES ---
-        $stmt = $pdo->prepare("SELECT * FROM private_messages WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) AND id > ? ORDER BY id ASC");
-        $stmt->execute([$my_id, $target_id, $target_id, $my_id, $last_id]);
+       // --- C. CHECK NEW MESSAGES (GUEST-AWARE) ---
+$my_type = (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) ? 'guest' : 'user';
+$target_type = $_GET['type'] ?? 'user';
+
+$stmt = $pdo->prepare("SELECT * FROM private_messages 
+    WHERE (
+        (sender_id = ? AND sender_type = ? AND receiver_id = ? AND receiver_type = ?) 
+        OR 
+        (sender_id = ? AND sender_type = ? AND receiver_id = ? AND receiver_type = ?)
+    ) 
+    AND id > ? ORDER BY id ASC");
+
+$stmt->execute([
+    $my_id, $my_type, $target_id, $target_type, 
+    $target_id, $target_type, $my_id, $my_type, 
+    $last_id
+]);
         $new = $stmt->fetchAll();
 
         if ($new) {

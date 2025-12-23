@@ -3,6 +3,10 @@ session_start();
 require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
+if (isset($_SESSION['is_guest']) && $_SESSION['is_guest'] === true) {
+    header("Location: chat.php"); exit;
+}
+
 // FETCH CATEGORIES FOR NAV
 $cats = $pdo->query("SELECT * FROM link_categories ORDER BY display_order ASC")->fetchAll();
 

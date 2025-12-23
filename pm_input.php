@@ -8,6 +8,16 @@ if (!isset($_SESSION['fully_authenticated']) || !isset($_GET['to'])) exit;
 $my_id = $_SESSION['user_id'];
 $target_id = (int)$_GET['to'];
 
+// --- PERMISSION CHECK (SEND PM) ---
+$stmt_p = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
+$perms = json_decode($stmt_p->fetchColumn() ?: '{}', true);
+$req_pm = $perms['perm_send_pm'] ?? 1;
+
+if (($_SESSION['rank'] ?? 0) < $req_pm) {
+    echo "<style>body{background:#000;color:#444;display:flex;align-items:center;justify-content:center;height:100%;margin:0;font-family:monospace;font-size:0.8rem;}</style>";
+    die("[ SIGNAL LOST: INSUFFICIENT RANK ]");
+}
+
 // --- HANDLE SUBMISSIONS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     

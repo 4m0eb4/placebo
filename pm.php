@@ -3,32 +3,97 @@ session_start();
 require 'db_config.php';
 require 'bbcode.php';
 
-// Access Control
-if (!isset($_SESSION['fully_authenticated']) || isset($_SESSION['is_guest'])) { 
-    header("Location: index.php"); exit; 
+// Access Control: Block Guests
+if (!isset($_SESSION['fully_authenticated']) || (isset($_SESSION['is_guest']) && $_SESSION['is_guest'])) { 
+    header("Location: chat.php"); exit; 
 }
 
-$my_id = $_SESSION['user_id'];
+// 1. IDENTITY RESOLUTION
+// Determine if we are a Registered User or a Guest
+$is_guest = isset($_SESSION['is_guest']) && $_SESSION['is_guest'];
+
+if ($is_guest) {
+    $my_id = $_SESSION['guest_token_id']; // Guests use Token ID
+    $my_type = 'guest';
+} else {
+    $my_id = $_SESSION['user_id']; // Users use User ID
+    $my_type = 'user';
+}
+
+// Permission Logic
+$stmt_p = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
+$perms = json_decode($stmt_p->fetchColumn() ?: '{}', true);
+$req_pm = $perms['perm_send_pm'] ?? 1;
+
+// Target Logic
 $target_id = isset($_GET['to']) ? (int)$_GET['to'] : 0;
-// Input logic moved to pm_input.php to prevent jarring refreshes
+// Note: Currently assumes targets are Users (since Guests replying to Guests is rare/edge case).
+// To support chatting with a guest, we would need a 'type' param in URL. Defaulting to 'user' target.
+$target_type = $_GET['type'] ?? 'user'; 
 
 // --- VIEW LOGIC ---
 if ($target_id) {
-    // CONVERSATION MODE
-    $stmt_u = $pdo->prepare("SELECT username, pgp_public_key FROM users WHERE id = ?");
-    $stmt_u->execute([$target_id]);
-    $target_user = $stmt_u->fetch();
+    // [ CONVERSATION MODE ]
     
-    if (!$target_user) die("Target Lost.");
+    // Fetch Target Details
+    $target_name = "Unknown";
+    $target_key  = "";
+    
+    if ($target_type === 'user') {
+        $stmt_u = $pdo->prepare("SELECT username, pgp_public_key FROM users WHERE id = ?");
+        $stmt_u->execute([$target_id]);
+        $res = $stmt_u->fetch();
+        if ($res) {
+            $target_name = $res['username'];
+            $target_key  = $res['pgp_public_key'];
+        }
+    } else {
+        // Guest Target
+        $stmt_g = $pdo->prepare("SELECT guest_username FROM guest_tokens WHERE id = ?");
+        $stmt_g->execute([$target_id]);
+        $target_name = $stmt_g->fetchColumn() ?: "Guest_#$target_id";
+    }
 
 } else {
-    // INBOX MODE
-    $stmt_inbox = $pdo->prepare("SELECT DISTINCT u.id, u.username, u.rank, 
-        (SELECT COUNT(*) FROM private_messages WHERE receiver_id = ? AND sender_id = u.id AND is_read = 0) as unread
-        FROM users u JOIN private_messages pm ON (u.id = pm.sender_id OR u.id = pm.receiver_id) 
-        WHERE (pm.receiver_id = ? OR pm.sender_id = ?) AND u.id != ? ORDER BY unread DESC, pm.created_at DESC");
-    $stmt_inbox->execute([$my_id, $my_id, $my_id, $my_id]);
-    $contacts = $stmt_inbox->fetchAll();
+    // [ INBOX MODE ]
+    
+    // We fetch distinct senders who have messaged US.
+    // (Limitation: Without 'sender_type' in DB, we assume most senders are Users for now)
+    $sql = "
+        SELECT 
+            pm.sender_id as id,
+            MAX(pm.created_at) as last_msg,
+            COUNT(CASE WHEN pm.is_read = 0 THEN 1 END) as unread
+        FROM private_messages pm
+        WHERE pm.receiver_id = ? AND pm.receiver_type = ?
+        GROUP BY pm.sender_id
+        ORDER BY last_msg DESC
+    ";
+    
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$my_id, $my_type]);
+    $raw_contacts = $stmt->fetchAll();
+    
+    // Hydrate Names
+    $contacts = [];
+    foreach($raw_contacts as $c) {
+        // Fetch User Name
+        $stmt_u = $pdo->prepare("SELECT username, rank FROM users WHERE id = ?");
+        $stmt_u->execute([$c['id']]);
+        $u = $stmt_u->fetch();
+        
+        if ($u) {
+            $c['username'] = $u['username'];
+            $c['rank'] = $u['rank'];
+            $c['type'] = 'user';
+        } else {
+            // Fallback for Guest Senders (if ID doesn't match a user)
+            $c['username'] = "Unknown/Guest";
+            $c['rank'] = 0;
+            $c['type'] = 'guest'; 
+        }
+        $contacts[] = $c;
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -37,7 +102,7 @@ if ($target_id) {
     <title>Secure Comms</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .pm-container { width: 100%; max-width: 1000px; margin: 0 auto; } /* Constraint applied */
+        .pm-container { width: 100%; max-width: 1000px; margin: 0 auto; }
         .inbox-card { background: #080808; border: 1px solid #222; padding: 15px; margin-bottom: 15px; }
         
         /* PGP ACCORDION */
@@ -49,12 +114,6 @@ if ($target_id) {
         details.pgp-top summary:hover { color: #6a9c6a; }
         details.pgp-top[open] summary { color: #6a9c6a; border-bottom: 1px solid #333; }
         .pgp-content { padding: 10px; }
-
-        /* BURN BUTTON */
-        .btn-burn-active {
-            background: #220505; color: #e06c75; border: 1px solid #e06c75; 
-            cursor: pointer; animation: pulse 2s infinite; font-size: 0.7rem; padding: 2px 8px;
-        }
     </style>
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="margin:0; padding:0; height:100vh; overflow:hidden; display:flex; flex-direction:column;">
@@ -63,7 +122,7 @@ if ($target_id) {
     <div class="nav-bar" style="flex: 0 0 auto; background: #161616; border-bottom: 1px solid #333; padding: 10px 20px; display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap: 20px;">
             <a href="index.php" class="term-logo">Placebo</a>
-            <span style="color:#444; font-size:0.75rem; font-family:monospace;">// Secure_Comms</span>
+            <span style="color:#444; font-size:0.75rem; font-family:monospace;">// Secure_Comms [<?= strtoupper($my_type) ?>]</span>
         </div>
         <div style="font-size:0.75rem; font-family:monospace;">
             <?php if($target_id): ?>
@@ -79,16 +138,18 @@ if ($target_id) {
         
         <?php if($target_id): ?>
             <div style="padding:15px; border-bottom:1px solid #333; background:#111; display:flex; justify-content:space-between; align-items:center;">
-                <span style="color:#fff; font-weight:bold;">UPLINK: <?= htmlspecialchars($target_user['username']) ?></span>
+                <span style="color:#fff; font-weight:bold;">UPLINK: <?= htmlspecialchars($target_name) ?></span>
                 <span style="color:#444; font-size:0.7rem; font-family:monospace;">SECURE_V2 // NO_JS</span>
             </div>
 
+            <?php if($target_key): ?>
             <details class="pgp-top">
                 <summary>[ VIEW TARGET PGP IDENTITY ]</summary>
                 <div class="pgp-content">
-                     <textarea readonly class="pgp-box" style="height:120px; width:100%; box-sizing:border-box; background:#050505; color:#444; border:1px solid #222; font-family:monospace; padding:10px; display:block;"><?= htmlspecialchars($target_user['pgp_public_key']) ?></textarea>
+                     <textarea readonly class="pgp-box" style="height:120px; width:100%; box-sizing:border-box; background:#050505; color:#444; border:1px solid #222; font-family:monospace; padding:10px; display:block;"><?= htmlspecialchars($target_key) ?></textarea>
                 </div>
             </details>
+            <?php endif; ?>
 
             <div style="flex:1; background:#0d0d0d; position:relative; min-height:0;">
                 <?php $wiped_flag = isset($_GET['wiped']) ? '&wiped=1' : ''; ?>
@@ -100,14 +161,14 @@ if ($target_id) {
             </div>
 
         <?php else: ?>
-            <div style="padding:20px;">
+            <div style="padding:20px; overflow-y:auto;">
                 <h3 style="color:#d19a66; border-bottom:1px solid #333; padding-bottom:10px;">ACTIVE FREQUENCIES</h3>
                 <?php if(empty($contacts)): ?>
                     <div style="color:#444;">No prior communications.</div>
                 <?php endif; ?>
 
                 <?php foreach($contacts as $c): ?>
-                    <a href="pm.php?to=<?= $c['id'] ?>" style="display:block; background:#161616; padding:12px; margin-bottom:8px; border:1px solid #333; text-decoration:none; display:flex; justify-content:space-between; align-items:center;">
+                    <a href="pm.php?to=<?= $c['id'] ?>&type=<?= $c['type'] ?>" style="display:block; background:#161616; padding:12px; margin-bottom:8px; border:1px solid #333; text-decoration:none; display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <span style="color:#fff; font-weight:bold;"><?= htmlspecialchars($c['username']) ?></span>
                             <span class="badge" style="margin-left:5px;">L<?= $c['rank'] ?></span>

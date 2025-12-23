@@ -71,8 +71,55 @@ function render_update($row, $rank, $presets) {
 
 // --- CORE DISPLAY FUNCTION ---
 function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
+    global $pdo; // REQUIRED for name lookup
+    $my_id = $_SESSION['user_id'] ?? $_SESSION['guest_token_id'] ?? 0;
     
-    // [FIX] Visibility check removed to allow Users to see Admin/System messages
+// --- WHISPER LOGIC & RENDERING ---
+    if (($row['msg_type'] ?? '') === 'whisper') {
+        $curr_type = (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) ? 'guest' : 'user';
+        $my_real_id = (int)($curr_type === 'guest' ? ($_SESSION['guest_token_id'] ?? 0) : ($_SESSION['user_id'] ?? 0));
+        
+        $is_sender = ($row['user_id'] == $my_real_id && $row['username'] === ($_SESSION['username'] ?? ''));
+        $is_target = ($row['target_id'] == $my_real_id && $row['target_type'] === $curr_type);
+        
+        if (!$is_sender && !$is_target && $viewer_rank < 9) return;
+
+        // Determine Label
+        if ($is_sender) {
+            $t_name = "Unknown";
+            try {
+                if (($row['target_type'] ?? 'user') === 'user') {
+                    $tn_stmt = $pdo->prepare("SELECT username FROM users WHERE id = ?");
+                    $tn_stmt->execute([$row['target_id']]);
+                    $t_name = $tn_stmt->fetchColumn() ?: "Unknown";
+                } else {
+                    $tn_stmt = $pdo->prepare("SELECT guest_username FROM guest_tokens WHERE id = ?");
+                    $tn_stmt->execute([$row['target_id']]);
+                    $t_name = $tn_stmt->fetchColumn() ?: "Guest";
+                }
+            } catch (Exception $e) {}
+            $w_label = "YOU WHISPERED to " . htmlspecialchars($t_name);
+        } else {
+            $w_label = "WHISPER FROM " . htmlspecialchars($row['username']);
+        }
+
+        // Delete Button Logic (Sender or Admin)
+        $can_del = ($is_sender || $viewer_rank >= 9);
+        $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' style='color:#e06c75; font-weight:bold; text-decoration:none; margin-left:10px; float:right;' title='Delete Whisper'>[x]</a>" : "";
+
+        $w_color = "#c678dd"; 
+        $w_bg    = "#1a051a"; 
+        $msg_body = parse_bbcode($row['message']);
+
+        echo "<div class='msg-row' id='$dom_id' style='order: {$row['id']}; background: $w_bg; border-left: 3px solid $w_color; opacity: 0.95; padding-left:5px;'>
+                <div class='col-time'>".date('H:i', strtotime($row['created_at']))."</div>
+                <div style='flex-grow:1; padding-left:10px; color:$w_color; font-size:0.75rem; word-break: break-word;'>
+                    <strong>[$w_label]</strong>: <span style='color:#e0e0e0;'>$msg_body</span>
+                    $del_btn
+                </div>
+              </div>";
+        return; 
+    }
     
     if (($row['msg_type'] ?? 'normal') === 'system' || ($row['msg_type'] ?? 'normal') === 'broadcast') {
         $is_broadcast = ($row['msg_type'] === 'broadcast');
