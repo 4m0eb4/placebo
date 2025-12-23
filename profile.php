@@ -14,17 +14,27 @@ if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); e
 
 // Fetch Target User
 $id = $_GET['id'] ?? $_SESSION['user_id'];
-$stmt = $pdo->prepare("SELECT username, rank, created_at, pgp_public_key, pgp_fingerprint FROM users WHERE id = ?");
+// ADDED: chat_color, mute/slow status
+$stmt = $pdo->prepare("SELECT username, rank, chat_color, created_at, pgp_public_key, pgp_fingerprint, is_muted, slow_mode_override FROM users WHERE id = ?");
 $stmt->execute([$id]);
 $profile = $stmt->fetch();
 
 if (!$profile) die("<html><body style='background:#000;color:#888;font-family:monospace;text-align:center;padding:50px;'>USER_NOT_FOUND</body></html>");
 
 // Rank Colors
-$rank_color = '#888'; // Default
-if ($profile['rank'] == 10) $rank_color = '#d19a66'; // Gold
-if ($profile['rank'] == 9)  $rank_color = '#6a9c6a'; // Green
-if ($profile['rank'] == 5)  $rank_color = '#e5c07b'; // Yellow
+// Rank Colors - FULL CONTROL (1-10)
+$rank_color = match((int)$profile['rank']) {
+    10 => '#d19a66', // OWNER (Gold)
+    9  => '#6a9c6a', // HEAD ADMIN (Green)
+    8  => '#56b6c2', // ADMIN (Cyan)
+    7  => '#c678dd', // SR MOD (Purple)
+    6  => '#c678dd', // MOD (Purple)
+    5  => '#e5c07b', // VIP (Yellow)
+    4  => '#61afef', // TRUSTED (Blue)
+    3  => '#98c379', // MEMBER (Light Green)
+    2  => '#abb2bf', // VERIFIED (White)
+    default => '#5c6370' // PEASANT (Dark Grey)
+};
 
 ?>
 <!DOCTYPE html>
@@ -55,7 +65,25 @@ if ($profile['rank'] == 5)  $rank_color = '#e5c07b'; // Yellow
         <div class="profile-card" style="background: var(--panel-bg); border: 1px solid var(--border-color); width: 100%; max-width: 600px; margin: 20px auto; padding: 30px; box-sizing: border-box;">
             
             <div class="p-header">
-                <span class="p-username"><?= htmlspecialchars($profile['username']) ?></span>
+                <span class="p-username">
+                <?php
+                    // RENDER USERNAME STYLE
+                    $raw_style = $profile['chat_color'] ?? '';
+                    $raw_style = str_ireplace(['url(', 'http', 'ftp', 'expression'], '', $raw_style);
+                    $display_name = $profile['username']; // Raw name
+
+                    // Check if Template (contains {u} or brackets)
+                    if (strpos($raw_style, '{u}') !== false || (str_starts_with(trim($raw_style), '[') && str_ends_with(trim($raw_style), ']'))) {
+                        $processed = str_replace('{u}', $display_name, $raw_style);
+                        if (strpos($raw_style, '{u}') === false) $processed = $raw_style . $display_name;
+                        echo parse_bbcode($processed);
+                    } else {
+                        // CSS or Hex
+                        $css = (strpos($raw_style, ':') !== false || strpos($raw_style, ';') !== false) ? $raw_style : "color: $raw_style";
+                        echo "<span style=\"$css\">" . htmlspecialchars($display_name) . "</span>";
+                    }
+                ?>
+                </span>
                 <span class="p-rank">LEVEL <?= $profile['rank'] ?></span>
             </div>
 
@@ -74,13 +102,44 @@ if ($profile['rank'] == 5)  $rank_color = '#e5c07b'; // Yellow
                 </div>
             <?php endif; ?>
 
-            <?php if(isset($_SESSION['rank']) && $_SESSION['rank'] >= 9 && $id != $_SESSION['user_id']): ?>
+            <?php 
+                // FETCH PERMS FOR BUTTON VISIBILITY
+                $perm_ban = 9; $perm_nuke = 10;
+                try {
+                    $s = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='permissions_config'")->fetchColumn();
+                    $j = json_decode($s, true);
+                    if($j) { $perm_ban = $j['perm_user_ban']; $perm_nuke = $j['perm_user_nuke']; }
+                } catch(Exception $e){}
+                
+                $my_r = $_SESSION['rank'] ?? 0;
+            ?>
+
+            <?php if($my_r >= 5 && $id != $_SESSION['user_id']): ?>
                 <div style="margin-top: 40px; border-top: 1px dashed #e06c75; padding-top: 20px;">
                     <h4 style="color: #e06c75; margin-top: 0;">ADMIN CONTROL</h4>
-                    <form method="POST" action="admin_exec.php" style="display:flex; gap: 10px;">
+                    <form method="POST" action="admin_exec.php" style="display:flex; flex-wrap:wrap; gap: 10px;">
                         <input type="hidden" name="target_id" value="<?= $id ?>">
-                        <button type="submit" name="ban_user" class="btn-primary" style="background: #3e1b1b; color: #e06c75; border-color: #e06c75;" onclick="return confirm('CONFIRM BAN?');">[ BAN USER ]</button>
-                        <button type="submit" name="delete_user" class="btn-primary" style="background: #000; color: #666; border-color: #444;" onclick="return confirm('PERMANENTLY DELETE ACCOUNT?');">[ NUKE ACCOUNT ]</button>
+                        <input type="hidden" name="return_to" value="profile.php?id=<?= $id ?>">
+
+                        <?php if($profile['is_muted']): ?>
+                            <button type="submit" name="action_unmute" class="btn-primary" style="width:auto; background:#1a1a05; color:#e5c07b; border-color:#e5c07b;">[ UNMUTE ]</button>
+                        <?php else: ?>
+                            <button type="submit" name="action_mute" class="btn-primary" style="width:auto; background:#1a0505; color:#e5c07b; border-color:#e5c07b;">[ MUTE ]</button>
+                        <?php endif; ?>
+
+                        <?php if($profile['slow_mode_override'] > 0): ?>
+                            <button type="submit" name="action_unslow" class="btn-primary" style="width:auto; background:#0f1a1a; color:#56b6c2; border-color:#56b6c2;">[ UNSLOW ]</button>
+                        <?php else: ?>
+                            <button type="submit" name="action_slow" class="btn-primary" style="width:auto; background:#05101a; color:#56b6c2; border-color:#56b6c2;">[ SLOW 15s ]</button>
+                        <?php endif; ?>
+                        
+                        <?php if($my_rank >= $perm_ban): ?>
+                        <button type="submit" name="action_ban" class="btn-primary" style="width:auto; background: #3e1b1b; color: #e06c75; border-color: #e06c75;" onclick="return confirm('CONFIRM BAN?');">[ BAN ]</button>
+                        <?php endif; ?>
+
+                        <?php if($my_rank >= $perm_nuke): ?>
+                        <button type="submit" name="action_nuke" class="btn-primary" style="width:auto; background: #000; color: #666; border-color: #444;" onclick="return confirm('PERMANENTLY DELETE ACCOUNT?');">[ NUKE ]</button>
+                        <?php endif; ?>
                     </form>
                 </div>
             <?php endif; ?>

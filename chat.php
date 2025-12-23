@@ -63,6 +63,19 @@ $rank = $_SESSION['rank'] ?? 0;
         </div>
     </div>
 
+    <input type="checkbox" id="help-modal-toggle" class="modal-toggle">
+    <div class="modal-overlay">
+        <div class="modal-box" style="height: 600px; max-width: 720px;">
+            <div class="modal-header">
+                <span>MANUAL</span>
+                <label for="help-modal-toggle" class="modal-close">[ CLOSE ]</label>
+            </div>
+            <div class="modal-content">
+                <iframe src="help_bbcode.php?modal=1" style="width:100%; height:100%; border:none;"></iframe>
+            </div>
+        </div>
+    </div>
+
     <input type="checkbox" id="users-modal-toggle" class="modal-toggle">
     <div class="modal-overlay">
         <div class="modal-box" style="height: 450px;">
@@ -72,6 +85,19 @@ $rank = $_SESSION['rank'] ?? 0;
             </div>
             <div class="modal-content">
                 <iframe src="users_online.php" style="width:100%; height:100%; border:none;"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <input type="checkbox" id="mod-modal-toggle" class="modal-toggle">
+    <div class="modal-overlay">
+        <div class="modal-box" style="height: 500px; max-width: 550px; border-color: #e06c75;">
+            <div class="modal-header" style="border-bottom-color: #e06c75;">
+                <span style="color: #e06c75;">USER MODERATION</span>
+                <label for="mod-modal-toggle" class="modal-close">[ CLOSE ]</label>
+            </div>
+            <div class="modal-content">
+                <iframe name="mod_frame" src="mod_panel.php" style="width:100%; height:100%; border:none;"></iframe>
             </div>
         </div>
     </div>
@@ -119,16 +145,42 @@ $rank = $_SESSION['rank'] ?? 0;
     <div class="chat-container">
         <iframe name="chat_stream" src="chat_stream.php" style="flex: 1; border: none; width: 100%; display:block;"></iframe>
 
-        <div style="height: 115px; background: #0d0d0d; border-top: 1px solid #222; flex-shrink: 0; display:flex; flex-direction:column;">
+        <div style="position: relative; height: 145px; background: #0d0d0d; border-top: 1px solid #222; flex-shrink: 0; display:flex; flex-direction:column;">
             
+            <label for="help-modal-toggle" style="
+                position: absolute; 
+                top: 24px; left: 5px; 
+                width: 40px; height: 28px; /* Matches Input Height */
+                background: #111; /* Matches Input BG */
+                color: #6a9c6a; 
+                border: 1px solid #333; 
+                display: flex; align-items: center; justify-content: center; 
+                font-family: monospace; font-weight: bold; cursor: pointer; 
+                z-index: 50;
+                font-size: 1rem;" title="Open Manual (Modal)">
+                [?]
+            </label>
+
             <div style="flex: 1; overflow:hidden;">
                 <iframe name="chat_input" src="chat_input.php" style="width: 100%; height:100%; border: none; display:block;"></iframe>
             </div>
 
             <div class="chat-options">
+                <?php
+                // FETCH PERMS
+                $mp_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
+                $mp_conf = json_decode($mp_stmt->fetchColumn() ?: '{}', true);
+                $req_mod = $mp_conf['perm_view_mod_panel'] ?? 9; 
+                ?>
                 <span>OPTIONS:</span>
                 
+                <a href="help_bbcode.php" target="_blank" class="opt-btn" title="Open BBCode Manual">{bb}</a>
+                
                 <label for="users-modal-toggle" class="opt-btn">[ USERS ]</label>
+                
+                <?php if ($rank >= $req_mod): ?>
+                    <label for="mod-modal-toggle" class="opt-btn" style="color:#e06c75;">[ MOD MENU ]</label>
+                <?php endif; ?>
 
                 <?php if (!$is_guest): ?>
                     <?php if ($rank >= 5): ?>

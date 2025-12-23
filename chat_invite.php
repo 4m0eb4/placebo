@@ -23,10 +23,14 @@ if (($_SESSION['rank'] ?? 0) < $req_rank) {
 $invite_code = '';
 $msg = "";
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate'])) {
     try {
         $token = strtoupper(bin2hex(random_bytes(4)));
-        $expires = date('Y-m-d H:i:s', strtotime("+24 hours"));
+        
+        $hours = isset($_POST['hours']) ? (int)$_POST['hours'] : 1;
+        if ($hours < 1 || $hours > 24) $hours = 1;
+        
+        $expires = date('Y-m-d H:i:s', strtotime("+{$hours} hours"));
 
         $stmt = $pdo->prepare("INSERT INTO guest_tokens (token, created_by, expires_at, status) VALUES (?, ?, ?, 'pending')");
         $stmt->execute([$token, $_SESSION['user_id'], $expires]);
@@ -47,13 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background: #161616; border: 1px solid #333; width: 100%; max-width: 350px; 
             padding: 15px; position: relative; box-shadow: 0 0 10px rgba(0,0,0,0.5);
         }
-        .btn-primary { padding: 8px 15px; font-size: 0.75rem; width: 100%; }
+        .btn-primary { padding: 8px 15px; font-size: 0.75rem; width: 100%; cursor: pointer; background: #222; color: #fff; border: 1px solid #444; }
+        .btn-primary:hover { background: #333; }
     </style>
 </head>
 <body>
     <div class="invite-box">
-        <a href="chat.php" style="position: absolute; top: 8px; right: 10px; color: #666; text-decoration: none; font-size:0.7rem;">[ CLOSE ]</a>
-        
         <h2 style="color: #6a9c6a; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 5px; font-size: 0.9rem; margin-bottom: 15px;">INVITE SYSTEM</h2>
         
         <?php if($invite_code): ?>
@@ -61,14 +64,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div style="font-size: 0.65rem; color: #888;">ACCESS KEY GENERATED</div>
                 <div style="font-size: 1.2rem; color: #fff; letter-spacing: 2px; font-family: monospace; user-select: all; margin-top:5px;"><?= $invite_code ?></div>
             </div>
-            <p style="color: #aaa; font-size: 0.7rem; text-align: center; margin:0;">Valid for 24 hours.</p>
+            <p style="color: #aaa; font-size: 0.7rem; text-align: center; margin:0 0 15px 0;">Valid for <?= $hours ?> hour<?= $hours > 1 ? 's' : '' ?>.</p>
+            
+            <form action="chat_invite.php" method="get">
+                <button type="submit" class="btn-primary">GENERATE NEW KEY</button>
+            </form>
+
         <?php else: ?>
             <p style="color: #ccc; font-size: 0.8rem; margin-bottom: 15px; line-height:1.4;">
                 Generate a one-time registration key.<br>
                 <span style="color: #e06c75; font-size:0.7rem;">NOTE: You are responsible for your invites.</span>
             </p>
-            <form method="POST">
-                <button type="submit" name="generate" class="btn-primary">CREATE KEY</button>
+            <form method="POST" style="display: flex; gap: 5px;">
+                <input type="number" name="hours" value="1" min="1" max="24" required 
+                       style="background: #000; border: 1px solid #333; color: #fff; width: 50px; text-align: center; font-family: monospace; padding: 8px 5px;">
+                <button type="submit" name="generate" class="btn-primary">CREATE KEY (HRS)</button>
             </form>
         <?php endif; ?>
     </div>

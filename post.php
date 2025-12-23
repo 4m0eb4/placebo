@@ -24,6 +24,102 @@ $my_rank = $_SESSION['rank'] ?? 1;
 if ($post['min_rank'] > $my_rank) {
     die("ACCESS DENIED: INSUFFICIENT CLEARANCE (LEVEL {$post['min_rank']} REQUIRED).");
 }
+
+// --- LOGIC MOVED TO TOP (FIXES REDIRECT) ---
+
+// 0. Fetch Settings (For OP Moderation)
+$stmt_s = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'allow_op_mod'");
+$op_mod_enabled = ($stmt_s->fetchColumn() === '1');
+
+// 1. Handle Deletion (With Anti-Cache Redirect)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_comment'])) {
+    $del_id = (int)$_POST['delete_comment'];
+    
+    // Check ownership
+    $stmt_chk = $pdo->prepare("SELECT user_id FROM post_comments WHERE id = ?");
+    $stmt_chk->execute([$del_id]);
+    $c_owner = $stmt_chk->fetchColumn();
+    
+    $is_admin = ($_SESSION['rank'] ?? 0) >= 9;
+    $is_author = ($c_owner == $_SESSION['user_id']);
+    $is_op = ($post['user_id'] == $_SESSION['user_id'] && $op_mod_enabled);
+
+    if ($c_owner && ($is_admin || $is_author || $is_op)) {
+        $pdo->prepare("DELETE FROM post_comments WHERE id = ?")->execute([$del_id]);
+        $uid = uniqid(); // Unique ID to force refresh
+        http_response_code(303); // See Other (Correct for POST->GET)
+        header("Location: post.php?id=$id&r=$uid#comments"); exit; 
+    }
+}
+
+// 2. Handle New Comment (With Anti-Cache Redirect)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['post_comment'])) {
+    $c_body = trim($_POST['comment_body']);
+    $parent = !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null;
+    
+    if ($c_body) {
+        $stmt = $pdo->prepare("INSERT INTO post_comments (post_id, user_id, parent_id, body) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$id, $_SESSION['user_id'], $parent, $c_body]);
+        $uid = uniqid(); 
+        http_response_code(303); 
+        header("Location: post.php?id=$id&r=$uid#comments"); exit;
+    }
+}
+
+// 3. Handle Voting (Toggle Logic)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cast_vote'])) {
+    $type = $_POST['vote_type']; // 'post' or 'comment'
+    $tid = (int)$_POST['vote_id'];
+    $val = (int)$_POST['vote_val']; // 1 or -1
+    
+    // Check existing vote
+    $stmt = $pdo->prepare("SELECT vote_val FROM votes WHERE user_id=? AND target_type=? AND target_id=?");
+    $stmt->execute([$_SESSION['user_id'], $type, $tid]);
+    $existing = $stmt->fetchColumn();
+
+    if ($existing) {
+        // If clicking same button -> Delete (Toggle Off)
+        // If clicking diff button -> Update
+        if ($existing == $val) {
+            $pdo->prepare("DELETE FROM votes WHERE user_id=? AND target_type=? AND target_id=?")->execute([$_SESSION['user_id'], $type, $tid]);
+        } else {
+            $pdo->prepare("UPDATE votes SET vote_val=? WHERE user_id=? AND target_type=? AND target_id=?")->execute([$val, $_SESSION['user_id'], $type, $tid]);
+        }
+    } else {
+        // Insert new
+        $pdo->prepare("INSERT INTO votes (user_id, target_type, target_id, vote_val) VALUES (?, ?, ?, ?)")->execute([$_SESSION['user_id'], $type, $tid, $val]);
+    }
+    
+    $uid = uniqid();
+    http_response_code(303);
+    // Redirect to anchor if it was a comment vote
+    $anchor = ($type === 'comment') ? "#c$tid" : "";
+    header("Location: post.php?id=$id&r=$uid$anchor"); exit;
+}
+
+// 4. Fetch Vote Data (Optimized)
+// A. Post Score
+$stmt_ps = $pdo->prepare("SELECT SUM(vote_val) FROM votes WHERE target_type='post' AND target_id=?");
+$stmt_ps->execute([$id]);
+$post_score = $stmt_ps->fetchColumn() ?: 0;
+// B. My Post Vote
+$stmt_mp = $pdo->prepare("SELECT vote_val FROM votes WHERE user_id=? AND target_type='post' AND target_id=?");
+$stmt_mp->execute([$_SESSION['user_id'], $id]);
+$my_post_vote = $stmt_mp->fetchColumn() ?: 0;
+
+// C. Fetch ALL Comment Scores & My Votes in one go (Prevents N+1 queries)
+$comment_scores = [];
+$my_comment_votes = [];
+
+// Scores
+$stmt_cs = $pdo->prepare("SELECT target_id, SUM(vote_val) as score FROM votes WHERE target_type='comment' AND target_id IN (SELECT id FROM post_comments WHERE post_id=?) GROUP BY target_id");
+$stmt_cs->execute([$id]);
+while($r = $stmt_cs->fetch()) { $comment_scores[$r['target_id']] = $r['score']; }
+
+// My Votes
+$stmt_mv = $pdo->prepare("SELECT target_id, vote_val FROM votes WHERE user_id=? AND target_type='comment' AND target_id IN (SELECT id FROM post_comments WHERE post_id=?)");
+$stmt_mv->execute([$_SESSION['user_id'], $id]);
+while($r = $stmt_mv->fetch()) { $my_comment_votes[$r['target_id']] = $r['vote_val']; }
 ?>
 <!DOCTYPE html>
 <html>
@@ -54,13 +150,28 @@ if ($post['min_rank'] > $my_rank) {
 
     <div style="padding: 30px; background: #0d0d0d; min-height: 80vh;">
         <div style="background: var(--panel-bg); border: 1px solid var(--border-color); padding: 30px; border-radius: 4px;">
-            <h1 style="color: var(--accent-primary); margin-top: 0; display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 20px;">
-                <span><?= parse_bbcode($post['title']) ?></span>
-                <?php if($post['min_rank'] > 1): ?>
-                    <span style="font-size:0.6rem; border:1px solid var(--accent-secondary); color:var(--accent-secondary); padding:4px 8px; border-radius:4px; letter-spacing:1px;">
-                        LEVEL <?= $post['min_rank'] ?>
-                    </span>
-                <?php endif; ?>
+            <h1 style="color: var(--accent-primary); margin-top: 0; display:flex; justify-content:space-between; align-items:flex-start; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 20px;">
+                <span style="overflow-wrap: anywhere; word-break: break-word; max-width: 80%;"><?= parse_bbcode($post['title']) ?></span>
+                
+                <div style="display:flex; flex-direction:column; align-items:flex-end; gap:5px;">
+                    <?php if($post['min_rank'] > 1): ?>
+                        <span style="font-size:0.6rem; border:1px solid var(--accent-secondary); color:var(--accent-secondary); padding:4px 8px; border-radius:4px; letter-spacing:1px;">
+                            LEVEL <?= $post['min_rank'] ?>
+                        </span>
+                    <?php endif; ?>
+                    
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <form method="POST" style="margin:0;">
+                            <input type="hidden" name="cast_vote" value="1"><input type="hidden" name="vote_type" value="post"><input type="hidden" name="vote_id" value="<?= $id ?>"><input type="hidden" name="vote_val" value="1">
+                            <button type="submit" style="background:none; border:none; cursor:pointer; font-family:monospace; font-size:1.2rem; line-height:1; color:<?= ($my_post_vote==1)?'#6a9c6a':'#444' ?>;">+</button>
+                        </form>
+                        <span style="color:#888; font-family:monospace; font-weight:bold; font-size:0.9rem;"><?= $post_score ?></span>
+                        <form method="POST" style="margin:0;">
+                            <input type="hidden" name="cast_vote" value="1"><input type="hidden" name="vote_type" value="post"><input type="hidden" name="vote_id" value="<?= $id ?>"><input type="hidden" name="vote_val" value="-1">
+                            <button type="submit" style="background:none; border:none; cursor:pointer; font-family:monospace; font-size:1.2rem; line-height:1; color:<?= ($my_post_vote==-1)?'#e06c75':'#444' ?>;">-</button>
+                        </form>
+                    </div>
+                </div>
             </h1>
             
             <div style="margin-bottom: 25px; font-size: 0.75rem; color: #555;">
@@ -80,20 +191,7 @@ if ($post['min_rank'] > $my_rank) {
             <?php endif; ?>
         </div>
 
-        <?php
-        // 1. Handle New Comment
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['post_comment'])) {
-            $c_body = trim($_POST['comment_body']);
-            $parent = !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null;
-            
-            if ($c_body) {
-                $stmt = $pdo->prepare("INSERT INTO post_comments (post_id, user_id, parent_id, body) VALUES (?, ?, ?, ?)");
-                $stmt->execute([$id, $_SESSION['user_id'], $parent, $c_body]);
-                // Redirect to avoid resubmission
-                header("Location: post.php?id=$id#comments"); exit;
-            }
-        }
-
+<?php
         // 2. Fetch Comments
         $c_stmt = $pdo->prepare("
             SELECT c.*, u.username, u.rank, u.chat_color 
@@ -105,13 +203,22 @@ if ($post['min_rank'] > $my_rank) {
         $c_stmt->execute([$id]);
         $all_comments = $c_stmt->fetchAll();
 
-        // 3. Recursive Render Function
+// 3. Recursive Render Function
         function render_comments($comments, $parent_id = null, $depth = 0) {
+            // FIX: Added vote arrays to global scope so function can see them
+            global $post, $op_mod_enabled, $comment_scores, $my_comment_votes;
+
             foreach ($comments as $c) {
                 if ($c['parent_id'] == $parent_id) {
                     $margin = $depth * 20;
                     $border_color = ($depth > 0) ? '#333' : '#444';
-                    $is_reply = isset($_GET['reply']) && $_GET['reply'] == $c['id'];
+                    
+                    // Determine Delete Rights
+                    $can_delete = (
+                        ($_SESSION['rank']??0) >= 9 || 
+                        $c['user_id'] == $_SESSION['user_id'] || 
+                        ($post['user_id'] == $_SESSION['user_id'] && $op_mod_enabled)
+                    );
                     
                     echo "<div id='c{$c['id']}' style='margin-left: {$margin}px; margin-top: 10px; border-left: 2px solid $border_color; padding-left: 10px;'>
                         <div style='display:flex; justify-content:space-between; align-items:center; background:#111; padding:5px; border:1px solid #222;'>
@@ -120,7 +227,24 @@ if ($post['min_rank'] > $my_rank) {
                         </div>
                         <div style='padding: 8px; color:#ccc; font-size:0.8rem; background:#0a0a0a; border:1px solid #222; border-top:none;'>
                             " . parse_bbcode($c['body']) . "
-                            <div style='text-align:right; margin-top:5px;'>
+                            <div style='display:flex; justify-content:space-between; align-items:center; margin-top:5px; padding-top:5px; border-top:1px dashed #222;'>
+                                <div style='display:flex; align-items:center; gap:10px; opacity:0.8;'>
+                                    <form method='POST' style='margin:0;'>
+                                        <input type='hidden' name='cast_vote' value='1'><input type='hidden' name='vote_type' value='comment'><input type='hidden' name='vote_id' value='{$c['id']}'><input type='hidden' name='vote_val' value='1'>
+                                        <button type='submit' style='background:none; border:none; cursor:pointer; font-size:1rem; line-height:1; padding:0; color:" . (($my_comment_votes[$c['id']]??0)==1 ? '#6a9c6a' : '#444') . ";'>+</button>
+                                    </form>
+                                    <span style='color:#777; font-size:0.75rem; font-family:monospace; font-weight:bold;'>" . ($comment_scores[$c['id']] ?? 0) . "</span>
+                                    <form method='POST' style='margin:0;'>
+                                        <input type='hidden' name='cast_vote' value='1'><input type='hidden' name='vote_type' value='comment'><input type='hidden' name='vote_id' value='{$c['id']}'><input type='hidden' name='vote_val' value='-1'>
+                                        <button type='submit' style='background:none; border:none; cursor:pointer; font-size:1rem; line-height:1; padding:0; color:" . (($my_comment_votes[$c['id']]??0)==-1 ? '#e06c75' : '#444') . ";'>-</button>
+                                    </form>
+                                </div>
+                                
+                                <div style='display:flex; align-items:center; gap:10px;'>
+                                " . ($can_delete ? "
+                                <form method='POST' onsubmit=\"return confirm('Delete signal?');\" style='margin:0;'>
+                                    <button type='submit' name='delete_comment' value='{$c['id']}' style='background:none; border:none; color:#e06c75; font-size:0.65rem; cursor:pointer; text-decoration:none;'>[ DELETE ]</button>
+                                </form>" : "") . "
                                 <a href='post.php?id={$c['post_id']}&reply={$c['id']}#reply_box' style='font-size:0.65rem; color:#6a9c6a; text-decoration:none;'>[ REPLY ]</a>
                             </div>
                         </div>
@@ -144,11 +268,23 @@ if ($post['min_rank'] > $my_rank) {
 
         <div id="reply_box" style="margin-top: 30px; background: #111; border: 1px solid #333; padding: 15px;">
             <?php 
-                $reply_id = $_GET['reply'] ?? null;
+                $reply_id = isset($_GET['reply']) ? (int)$_GET['reply'] : null;
                 $reply_label = "NEW TRANSMISSION";
-                if ($reply_id) $reply_label = "REPLYING TO ID #$reply_id";
+                
+                // UI: Fetch target username so we know who we are talking to
+                if ($reply_id) {
+                    $chk = $pdo->prepare("SELECT u.username FROM post_comments c JOIN users u ON c.user_id = u.id WHERE c.id = ?");
+                    $chk->execute([$reply_id]);
+                    if($target = $chk->fetch()) {
+                        $reply_label = "REPLYING TO: <span style='color:#fff;'>" . htmlspecialchars($target['username']) . "</span>";
+                    } else {
+                        $reply_label = "REPLYING TO ID #$reply_id";
+                    }
+                }
             ?>
-            <div style="color:#6a9c6a; font-size:0.8rem; font-weight:bold; margin-bottom:10px;"><?= $reply_label ?></div>
+            <div style="color:#6a9c6a; font-size:0.8rem; font-weight:bold; margin-bottom:10px; border-bottom:1px dashed #333; padding-bottom:5px;">
+                <?= $reply_label ?>
+            </div>
             
             <form method="POST">
                 <?php if($reply_id): ?><input type="hidden" name="parent_id" value="<?= $reply_id ?>"><?php endif; ?>

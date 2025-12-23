@@ -72,25 +72,106 @@ function render_update($row, $rank, $presets) {
 // --- CORE DISPLAY FUNCTION ---
 function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
     
-    if (($row['msg_type'] ?? 'normal') === 'system') {
-        $c_border = "#e06c75"; $c_bg = "#220505"; $c_text = "#e06c75"; 
+    // [FIX] Visibility check removed to allow Users to see Admin/System messages
+    
+    if (($row['msg_type'] ?? 'normal') === 'system' || ($row['msg_type'] ?? 'normal') === 'broadcast') {
+        $is_broadcast = ($row['msg_type'] === 'broadcast');
         
-        if (strpos($row['message'], '[INFO]') !== false) { $c_border = "#61afef"; $c_bg = "#051020"; $c_text = "#61afef"; } 
-        elseif (strpos($row['message'], '[SUCCESS]') !== false) { $c_border = "#98c379"; $c_bg = "#051505"; $c_text = "#98c379"; } 
-        elseif (strpos($row['message'], '[CRITICAL]') !== false) { $c_border = "#c678dd"; $c_bg = "#1a051a"; $c_text = "#c678dd"; } 
-        elseif (strpos($row['message'], '[MAINT]') !== false) { $c_border = "#e5c07b"; $c_bg = "#1a1005"; $c_text = "#e5c07b"; }
+        if (($row['msg_type'] ?? 'normal') === 'system' || ($row['msg_type'] ?? 'normal') === 'broadcast') {
+        $is_broadcast = ($row['msg_type'] === 'broadcast');
         
+        if ($is_broadcast) {
+            $c_border = (isset($row['color_hex']) && strlen($row['color_hex']) >= 4) ? $row['color_hex'] : '#333333';
+            $rgb = sscanf($c_border, "#%02x%02x%02x");
+            $c_bg = (isset($rgb[0]) && $rgb[0] !== null) ? "rgba({$rgb[0]}, {$rgb[1]}, {$rgb[2]}, 0.1)" : "#111";
+            $c_text = $c_border;
+            $label = $row['username'] ?? ''; 
+        } else {
+            $c_border = "#e06c75"; $c_bg = "#220505"; $c_text = "#e06c75"; 
+            if (strpos($row['message'], '[INFO]') !== false) { $c_border = "#61afef"; $c_bg = "#051020"; $c_text = "#61afef"; } 
+            elseif (strpos($row['message'], '[SUCCESS]') !== false) { $c_border = "#98c379"; $c_bg = "#051505"; $c_text = "#98c379"; } 
+            elseif (strpos($row['message'], '[CRITICAL]') !== false) { $c_border = "#c678dd"; $c_bg = "#1a051a"; $c_text = "#c678dd"; } 
+            elseif (strpos($row['message'], '[MAINT]') !== false) { $c_border = "#e5c07b"; $c_bg = "#1a1005"; $c_text = "#e5c07b"; }
+            
+            // If the username field in DB is literally 'SYSTEM', and it's a 'system' type, 
+            // you can choose to hide it here by setting $label = '';
+            $label = ($row['username'] === 'SYSTEM') ? '' : $row['username'];
+        }
+        
+        $label_html = !empty($label) ? "<strong style='background:$c_border; color:#000; padding:2px 6px; font-size:0.7rem; flex-shrink:0;'>[$label]</strong>" : "";
         $alert_style = "border: 1px solid $c_border; background: $c_bg; color: $c_text;";
-        echo "<div class='msg-row sys-msg' id='$dom_id' style='$alert_style display:block; order: {$row['id']};'>
-                <div style='text-align:center; width:100%; font-weight:bold; letter-spacing:1px; font-size:0.8rem;'>
+        
+        $can_del = ($viewer_rank >= 9); // Specifically for system messages, Rank 9+ only
+        $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' class='sys-del-btn' title='Remove Broadcast'>[x]</a>" : "";
+
+        echo "<div class='msg-row sys-msg' id='$dom_id' style='$alert_style display:flex; align-items:center; justify-content:center; gap:15px; order: {$row['id']}; position:relative;'>
+                $label_html
+                <div style='font-weight:bold; letter-spacing:0.5px; font-size:0.8rem;'>
                     ".parse_bbcode($row['message'])."
                 </div>
+                $del_btn
               </div>";
         return;
     }
+        return;
+    }
 
-    $u_color = $row['color_hex'] ?? '#888888';
-    $msg_color = to_pastel($u_color);
+$raw_style = $row['color_hex'] ?? '#888888';
+    $msg_color = '#ccc'; 
+
+    // SECURITY: Prevent deanonymization via CSS external resources
+    $raw_style = str_ireplace(['url(', 'http:', 'https:', 'ftp:', 'data:', 'expression'], '', $raw_style);
+
+    // LOGIC: Determine Content + Style
+    $inner_html = "";
+    $wrapper_style = "";
+
+    // CHECK: Is it a BBCode Template? (Contains {u} or brackets)
+    if (strpos($raw_style, '{u}') !== false || (str_starts_with(trim($raw_style), '[') && str_ends_with(trim($raw_style), ']'))) {
+        
+        $processed_name = str_replace('{u}', $row['username'], $raw_style);
+        if (strpos($raw_style, '{u}') === false) $processed_name = $raw_style . $row['username'];
+        
+        $inner_html = parse_bbcode($processed_name);
+        
+        // INTELLIGENT COLOR EXTRACTION
+        // If the username has a [color=#hex] tag, we extract it and apply a pastel version to the message text.
+        if (preg_match('/\[color=(#[a-f0-9]{3,6})\]/i', $raw_style, $matches)) {
+            $msg_color = to_pastel($matches[1]);
+        } else {
+            // No specific color tag found (e.g. just [b] or [glitch]), default to soft grey
+            $msg_color = '#d0d0d0'; 
+        }
+
+    } else {
+        // CHECK: Is it CSS or Hex?
+// CHECK: Is it CSS or Hex?
+    if (strpos($raw_style, ';') !== false || strpos($raw_style, ':') !== false) {
+        // [FIX] Apply CSS wrapper but ALSO allow BBCode parsing inside the username
+        $wrapper_style = $raw_style;
+        $inner_html = (strpos($raw_style, '[') !== false) ? parse_bbcode(str_replace('{u}', $row['username'], $raw_style)) : $row['username'];
+        
+        // Extract color for message text if present in the CSS or BBCode
+        if (preg_match('/color:\s*(#[a-f0-9]{3,6})/i', $raw_style, $m)) $msg_color = to_pastel($m[1]);
+        elseif (preg_match('/\[color=(#[a-f0-9]{3,6})\]/i', $raw_style, $m)) $msg_color = to_pastel($m[1]);
+        else $msg_color = '#d0d0d0';
+    } else {
+            // It's a simple Hex code (e.g. "#ff0000")
+            $wrapper_style = "color: " . $raw_style;
+            $inner_html = $row['username'];
+            $msg_color = to_pastel($raw_style);
+        }
+    }
+
+    // [FIX] Strip the CSS properties from the inner HTML if they were accidentally parsed as text
+    $clean_inner = (strpos($raw_style, ';') !== false) ? str_replace($raw_style, '', $inner_html) : $inner_html;
+    if(empty($clean_inner)) $clean_inner = $row['username'];
+
+    // FINAL OUTPUT
+    $user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner</div>";
+    
+    // --- STRAY BRACKET REMOVED HERE ---
+
     $time = date('H:i', strtotime($row['created_at']));
     $text = parse_bbcode($row['message']);
     
@@ -99,7 +180,7 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
     
     $react_links = "";
     $base_act = "chat_action.php?react=1&id=" . $row['id'] . "&emoji=";
-    foreach($presets as $em) {
+    foreach($presets as $em) { 
         $em = trim($em);
         $react_links .= "<a href='{$base_act}" . urlencode($em) . "' target='chat_input' style='text-decoration:none; font-size:1.1rem;'>$em</a> ";
     }
@@ -129,10 +210,10 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
     $can_del = ($viewer_rank >= 5 || $is_mine);
     $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' class='del-btn'>[x]</a>" : "";
 
-    echo "
+echo "
     <div class='msg-row' id='$dom_id' style='order: {$row['id']};'>
         <div class='col-time'>$time</div>
-        <div class='col-user' style='color:$u_color;'>{$row['username']}</div>
+        $user_display_html
         <div class='col-text' style='color:$msg_color;'>
             $text$react_display
         </div>
@@ -241,45 +322,66 @@ try {
         // -1. CHECK PINNED MESSAGE (Every ~5s)
         if ($now - $last_pin_check >= 5) {
             $last_pin_check = $now;
+            // Initialize tracker if not set in this scope
+            $last_pin_dom_id = $last_pin_dom_id ?? null; 
+
             try {
-                $p_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_pinned_msg', 'chat_pin_style')");
+                $p_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_pinned_msg', 'chat_pin_style', 'chat_pin_custom_color', 'chat_pin_custom_emoji')");
                 $p_conf = [];
                 while($r = $p_stmt->fetch()) $p_conf[$r['setting_key']] = $r['setting_value'];
 
                 $pin_msg = trim($p_conf['chat_pinned_msg'] ?? '');
                 $pin_style = $p_conf['chat_pin_style'] ?? 'INFO';
+                $custom_color = $p_conf['chat_pin_custom_color'] ?? '#6a9c6a';
+                $custom_emoji = $p_conf['chat_pin_custom_emoji'] ?? '';
                 
-                // Hash includes style so we update if style changes
-                $pin_hash = md5($pin_msg . $pin_style);
+                $pin_hash = md5($pin_msg . $pin_style . $custom_color . $custom_emoji);
                 if ($pin_hash !== $current_pin_hash) {
                     $current_pin_hash = $pin_hash;
-                    // Output or Clear Pin
-                    if ($pin_msg === '') {
-                        echo "<style>#pin_banner { display: none !important; } body { padding-top: 20px !important; }</style>";
-                    } else {
+
+                    // 1. Clean up OLD pin using CSS (No JS)
+                    if ($last_pin_dom_id) {
+                        echo "<style>#{$last_pin_dom_id} { display: none !important; }</style>";
+                    }
+
+                    // 2. Output NEW Pin (or nothing if empty)
+                    if ($pin_msg !== '') {
                         $parsed_pin = parse_bbcode($pin_msg);
                         
-                        // Determine Colors based on Style
                         $c_bg = "#1a1005"; $c_text = "#e5c07b"; $c_border = "#e5c07b"; $label = "[NOTICE]";
-                        
                         if ($pin_style === 'WARN') { $c_bg = "#220505"; $c_text = "#e06c75"; $c_border = "#e06c75"; $label = "[WARNING]"; }
                         elseif ($pin_style === 'CRIT') { $c_bg = "#1a051a"; $c_text = "#c678dd"; $c_border = "#c678dd"; $label = "[CRITICAL]"; }
                         elseif ($pin_style === 'SUCCESS') { $c_bg = "#051505"; $c_text = "#98c379"; $c_border = "#98c379"; $label = "[UPDATE]"; }
                         elseif ($pin_style === 'INFO') { $c_bg = "#051020"; $c_text = "#61afef"; $c_border = "#61afef"; $label = "[INFO]"; }
+                        elseif ($pin_style === 'CUSTOM') { $c_bg = "#0d0d0d"; $c_text = $custom_color; $c_border = $custom_color; $label = $custom_emoji; }
+                        elseif ($pin_style === 'NONE') { $c_bg = "#0d0d0d"; $c_text = $custom_color; $c_border = $custom_color; $label = ""; }
 
-                        // Fixed Bar at Top
-                        echo "<style>
-                            #pin_banner { display: block !important; }
-                            body { padding-top: 50px !important; } /* Push content down */
-                        </style>";
+                        $pid = "pin_" . time() . "_" . rand(100,999);
+                        $last_pin_dom_id = $pid;
                         
-                        $pid = "pin_" . time();
-                        echo "<div id='$pid' style='position:fixed; top:0; left:0; width:100%; background:$c_bg; border-bottom:1px solid $c_border; color:$c_text; padding:10px; font-size:0.75rem; z-index:9000; box-sizing:border-box; box-shadow:0 2px 10px rgba(0,0,0,0.5); display:flex; align-items:center; gap:10px;'>
-                                <strong style='background:$c_border; color:#000; padding:2px 6px; border-radius:2px;'>$label</strong> 
-                                <span>$parsed_pin</span>
+                        $label_html = ($label !== "") ? "<strong style='background:$c_border; color:#000; padding:2px 6px; border-radius:2px; flex-shrink:0;'>$label</strong>" : "";
+
+                        echo "<div id=\"$pid\" style=\"
+                                position: sticky; 
+                                top: 0; 
+                                order: 2147483647; 
+                                z-index: 9000; 
+                                margin: -20px -20px 20px -20px;
+                                background: $c_bg; 
+                                border-bottom: 1px solid $c_border; 
+                                color: $c_text; 
+                                padding: 10px 15px; 
+                                font-size: 0.75rem; 
+                                box-shadow: 0 5px 15px rgba(0,0,0,0.5); 
+                                display: flex; flex-direction: column; align-items: stretch; gap: 5px;
+                              \">
+                                <div style=\"display: flex; align-items: center; gap: 10px; width: 100%;\">
+                                    $label_html 
+                                    <span style=\"flex-grow: 1; width: 100%;\">$parsed_pin</span>
+                                </div>
                               </div>";
-                        // Hide previous pins
-                        echo "<script>var old = document.querySelectorAll('div[id^=\"pin_\"]'); for(var i=0; i<old.length-1; i++) { old[i].style.display='none'; }</script>";
+                    } else {
+                        $last_pin_dom_id = null;
                     }
                 }
             } catch (Exception $e) {}

@@ -1,10 +1,29 @@
 <?php
 session_start();
 require 'db_config.php';
+require_once 'bbcode.php'; // Required for username previews
+// --- SECURITY: DYNAMIC PERMISSION CHECK ---
+if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['rank'])) { header("Location: login.php"); exit; }
 
-// --- SECURITY: ADMIN CHECK (RANK 9+) ---
-// Rank 9 = General Admin | Rank 10 = Owner (Config/Logs)
-if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['rank']) || (int)$_SESSION['rank'] < 9) {
+// 1. Fetch Perms
+$p_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
+$raw = $p_stmt->fetchColumn();
+$sys_perms = json_decode($raw, true) ?? [];
+
+// 2. Define Requirements (Defaults if not set)
+$req_logs  = $sys_perms['perm_view_logs'] ?? 10;
+$req_users = $sys_perms['perm_manage_users'] ?? 9;
+$req_chat  = $sys_perms['perm_chat_config'] ?? 9;
+$req_automod = $sys_perms['perm_user_ban'] ?? 9; // Automod usually tied to Ban power
+
+// 3. Current User Rank
+$my_rank = (int)$_SESSION['rank'];
+
+// 4. Global Gatekeeper (Minimum Rank to see Dash at all)
+// We set this to the LOWEST of the requirements, so if you set Chat Config to Rank 5, they can get in.
+$min_entry = min($req_logs, $req_users, $req_chat, $req_automod, 10); 
+
+if ($my_rank < $min_entry) {
     ?>
     <!DOCTYPE html>
     <html><head><title>Restricted</title><link rel="stylesheet" href="style.css"></head>
@@ -23,6 +42,20 @@ if (!isset($_SESSION['fully_authenticated']) || !isset($_SESSION['rank']) || (in
 }
 
 $tab = $_GET['view'] ?? 'config';
+
+// --- TAB SECURITY GUARD ---
+// If user tries to access ?view=logs but their rank is too low, kick them to default.
+if ($tab === 'logs' && $my_rank < $req_logs) $tab = 'error';
+if ($tab === 'users' && $my_rank < $req_users) $tab = 'error';
+if ($tab === 'chat' && $my_rank < $req_chat) $tab = 'error';
+if ($tab === 'automod' && $my_rank < $req_automod) $tab = 'error';
+if ($tab === 'config' && $my_rank < 10) $tab = 'error'; // Config always 10
+
+if ($tab === 'error') {
+    echo "<div style='color:#e06c75; background:#1a0505; padding:20px; text-align:center; font-family:monospace;'>ACCESS DENIED: INSUFFICIENT CLEARANCE FOR THIS MODULE.</div>";
+    exit;
+}
+
 $msg = '';
 
 // --- ACTION HANDLERS ---
@@ -32,25 +65,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['send_sys_msg'])) {
         $txt = strip_tags($_POST['sys_msg_text']);
         $style = $_POST['sys_msg_type']; 
-        $emoji = match($style) {
-            'WARNING' => '⚠️ [RED ALERT] ',
-            'CRITICAL' => '☣️ [CRITICAL] ',
-            'MAINT' => '🛠️ [MAINTENANCE] ',
-            'SUCCESS' => '✅ [SUCCESS] ',
-            default => 'ℹ️ [INFO] '
-        };
-        $body = "[glitch]" . $emoji . $txt . "[/glitch]";
-        
-        $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, msg_type) VALUES (0, 'SYSTEM', ?, 10, 'system')")
-            ->execute([$body]);
+        $custom_hex = trim($_POST['sys_custom_hex'] ?? '');
+        $custom_label = trim($_POST['sys_custom_label'] ?? '');
+
+        // Validation: Ensure hex starts with # if provided
+        if (!empty($custom_hex) && $custom_hex[0] !== '#') $custom_hex = '#' . $custom_hex;
+
+        if (!empty($custom_hex) || !empty($custom_label) || $style === 'BLANK') {
+            $final_hex = !empty($custom_hex) ? $custom_hex : '#333333';
+            // Explicitly set to empty string if style is BLANK or label is empty
+            $final_label = !empty($custom_label) ? $custom_label : '';
+            
+            $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, color_hex, msg_type) VALUES (0, ?, ?, 10, ?, 'broadcast')")
+                ->execute([$final_label, $txt, $final_hex]);
+        } else {
+            $emoji = match($style) {
+                'WARNING' => '⚠️ [RED ALERT] ',
+                'CRITICAL' => '☣️ [CRITICAL] ',
+                'MAINT' => '🛠️ [MAINTENANCE] ',
+                'SUCCESS' => '✅ [SUCCESS] ',
+                default => 'ℹ️ [INFO] '
+            };
+            $body = $emoji . $txt;
+            
+            $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, msg_type) VALUES (0, 'SYSTEM', ?, 10, 'system')")
+                ->execute([$body]);
+        }
         $msg = "System Alert Broadcasted.";
     }
 
-    // 1. SAVE CONFIG (STRICT OWNER ONLY)
+// 1. SAVE CONFIG (STRICT OWNER ONLY)
     if ($tab === 'config') {
         if ($_SESSION['rank'] < 10) {
             $msg = "ACCESS DENIED: LEVEL 10 REQUIRED FOR CONFIGURATION.";
         } else {
+            // --- PALETTE MANAGER LOGIC ---
+            
+            // A. Handle DELETE (Immediate Action)
+            if (isset($_POST['del_palette_key'])) {
+                $raw_p = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='palette_json'")->fetchColumn();
+                $curr_p = json_decode($raw_p ?: '[]', true);
+                $del_k = $_POST['del_palette_key'];
+                
+                if (isset($curr_p[$del_k])) {
+                    unset($curr_p[$del_k]);
+                    $json_p = json_encode($curr_p);
+                    $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('palette_json', ?) ON DUPLICATE KEY UPDATE setting_value = ?")
+                        ->execute([$json_p, $json_p]);
+                    $msg = "Color '$del_k' Deleted.";
+                    // Update POST to reflect change immediately if we fall through
+                    $_POST['palette'] = $json_p; 
+                }
+            }
+            // B. Handle SAVE/EDIT/ADD (Reconstruct JSON from Inputs)
+            // If we are NOT deleting, and we see palette inputs, we rebuild the list.
+            elseif (isset($_POST['pal_names']) || isset($_POST['new_pal_name'])) {
+                $new_collection = [];
+                
+                // 1. Process Existing Rows (Edits)
+                if (isset($_POST['pal_names']) && isset($_POST['pal_hexs'])) {
+                    foreach ($_POST['pal_names'] as $idx => $name) {
+                        $name = trim(strip_tags($name));
+                        $hex = $_POST['pal_hexs'][$idx] ?? '#000000';
+                        if ($name && preg_match('/^#[0-9a-fA-F]{6}$/', $hex)) {
+                             list($r, $g, $b) = sscanf($hex, "#%02x%02x%02x");
+                             $new_collection[$name] = [$r, $g, $b];
+                        }
+                    }
+                }
+                
+                // 2. Process "New Color" Input (Add)
+                $new_n = trim(strip_tags($_POST['new_pal_name'] ?? ''));
+                $new_h = $_POST['new_pal_hex'] ?? '';
+                if ($new_n && preg_match('/^#[0-9a-fA-F]{6}$/', $new_h)) {
+                    list($r, $g, $b) = sscanf($new_h, "#%02x%02x%02x");
+                    $new_collection[$new_n] = [$r, $g, $b];
+                }
+                
+                // Inject into POST so the main saver below uses this new JSON
+                if (!empty($new_collection)) {
+                    $_POST['palette'] = json_encode($new_collection);
+                }
+            }
+
+            // --- HANDLE BACKGROUND ---
+
             // --- HANDLE BACKGROUND ---
             $bg_path = $_POST['saved_bg_url'] ?? ''; 
         
@@ -102,9 +201,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'site_bg_url' => $bg_path,
                 'max_chat_history' => $_POST['max_history'] ?? 150,
                 'show_online_nodes' => isset($_POST['show_nodes']) ? '1' : '0',
-                'invite_min_rank' => $_POST['invite_min_rank'] ?? 5,
+                // [MOVED] Rank settings moved to Perms tab
                 'registration_enabled' => isset($_POST['reg_enabled']) ? '1' : '0',
-                'registration_msg' => $_POST['reg_msg']
+                'registration_msg' => $_POST['reg_msg'],
+                'allow_op_mod' => isset($_POST['allow_op_mod']) ? '1' : '0'
             ];
 
             foreach($upd as $k=>$v) {
@@ -131,15 +231,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // 2. USER ACTIONS
     if ($tab === 'users') {
+        // --- PENALTY REMOVALS ---
+        if (isset($_POST['quick_unban'])) {
+            $pdo->prepare("UPDATE users SET is_banned = 0 WHERE id = ?")->execute([$_POST['user_id']]);
+            $msg = "User Unbanned.";
+        }
+        if (isset($_POST['quick_unmute'])) {
+            $pdo->prepare("UPDATE users SET is_muted = 0 WHERE id = ?")->execute([$_POST['user_id']]);
+            $msg = "User Unmuted.";
+        }
+        if (isset($_POST['quick_unslow'])) {
+            $pdo->prepare("UPDATE users SET slow_mode_override = 0 WHERE id = ?")->execute([$_POST['user_id']]);
+            $msg = "Slow Mode Removed for User.";
+        }
+
+        // --- STANDARD ACTIONS ---
         if (isset($_POST['delete_user'])) {
             $stmt = $pdo->prepare("DELETE FROM users WHERE id = ? AND rank < 10");
             $stmt->execute([$_POST['user_id']]);
             $msg = "User Deleted.";
         }
         if (isset($_POST['update_rank'])) {
-            $stmt = $pdo->prepare("UPDATE users SET rank = ? WHERE id = ? AND rank < 10");
-            $stmt->execute([$_POST['new_rank'], $_POST['user_id']]);
-            $msg = "Rank Updated.";
+            // SECURITY: strip_tags removes HTML (< >) but allows BBCode ([ ]) and CSS (; :)
+            $c = strip_tags($_POST['chat_color'] ?? '');
+            
+            // Allow Rank 10 to edit anyone, including themselves
+            if ($_SESSION['rank'] >= 10) {
+                $stmt = $pdo->prepare("UPDATE users SET rank = ?, chat_color = ? WHERE id = ?");
+                $stmt->execute([$_POST['new_rank'], $c, $_POST['user_id']]);
+                $msg = "User Profile Updated.";
+            } else {
+                 // Lower admins cannot touch Rank 10s
+                 $stmt = $pdo->prepare("UPDATE users SET rank = ?, chat_color = ? WHERE id = ? AND rank < 10");
+                 $stmt->execute([$_POST['new_rank'], $c, $_POST['user_id']]);
+                 $msg = "User Profile Updated (Restricted).";
+            }
+        }
+        // --- ADDED BAN LOGIC ---
+        if (isset($_POST['ban_user'])) {
+            $pdo->prepare("UPDATE users SET is_banned = 1, force_logout = 1 WHERE id = ? AND rank < 10")->execute([$_POST['user_id']]);
+            $pdo->prepare("INSERT INTO security_logs (user_id, username, action, ip_addr) VALUES (?, ?, ?, ?)")
+                ->execute([$_SESSION['user_id'], $_SESSION['username'], "BANNED User #".$_POST['user_id'], "MANUAL_DASH"]);
+            $msg = "User Banned & Kicked.";
         }
         if (isset($_POST['save_ranks'])) {
             $new_ranks = $_POST['rank_names'] ?? [];
@@ -185,7 +318,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'chat_locked' => isset($_POST['chat_locked']) ? '1' : '0',
                 'chat_slow_mode' => (int)$_POST['chat_slow_mode'],
                 'chat_pinned_msg' => trim($_POST['chat_pinned_msg']),
-                'chat_pin_style' => $_POST['chat_pin_style'] ?? 'INFO'
+                'chat_pin_style' => $_POST['chat_pin_style'] ?? 'INFO',
+                'chat_pin_custom_color' => $_POST['chat_pin_custom_color'] ?? '#6a9c6a',
+                'chat_pin_custom_emoji' => $_POST['chat_pin_custom_emoji'] ?? ''
             ];
             foreach($upd as $k=>$v) {
                 $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
@@ -212,6 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (isset($_POST['repair_chat_db'])) {
+            // 1. Re-create Chat Table with CORRECT columns for V10 logic
             $pdo->exec("DROP TABLE IF EXISTS chat_messages");
             $pdo->exec("CREATE TABLE chat_messages (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -219,10 +355,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 username VARCHAR(50) NOT NULL,
                 message TEXT NOT NULL,
                 rank INT DEFAULT 1,
+                color_hex VARCHAR(500) DEFAULT '#888',
+                msg_type VARCHAR(20) DEFAULT 'normal',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX (created_at)
             )");
-            $msg = "Chat Database Repaired & Reset.";
+            
+            // 2. Patch Users Table (Expand color column for BBCode Animations)
+            try {
+                $pdo->exec("ALTER TABLE users MODIFY chat_color VARCHAR(500) DEFAULT '#888'");
+            } catch (Exception $e) { /* Ignore if already exists/fails */ }
+
+            $msg = "Database Structure Repaired (Chat Wiped + Columns Expanded).";
         }
         if (isset($_POST['delete_msg'])) {
             $stmt = $pdo->prepare("DELETE FROM chat_messages WHERE id = ?");
@@ -266,21 +410,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Link Added manually.";
         }
         
-// EDIT EXISTING
-        if (isset($_POST['update_link'])) {
-            $cat_id = !empty($_POST['edit_cat']) ? $_POST['edit_cat'] : NULL;
-            $pdo->prepare("UPDATE shared_links SET title = ?, category_id = ? WHERE id = ?")
-                ->execute([$_POST['edit_title'], $cat_id, $_POST['edit_id']]);
-            $msg = "Link Updated.";
+// EDIT EXISTING (SINGLE OR BULK)
+        if (isset($_POST['update_link']) || isset($_POST['save_all_links'])) {
+            // If specific button clicked, just do that one. If 'Save All', do loop.
+            $targets = isset($_POST['update_link']) ? [$_POST['update_link']] : array_keys($_POST['links'] ?? []);
+            
+            foreach ($targets as $id) {
+                if (isset($_POST['links'][$id])) {
+                    $data = $_POST['links'][$id];
+                    $cat_id = !empty($data['cat']) ? $data['cat'] : NULL;
+                    $pdo->prepare("UPDATE shared_links SET title = ?, category_id = ? WHERE id = ?")
+                        ->execute([$data['title'], $cat_id, $id]);
+                }
+            }
+            $msg = (count($targets) > 1) ? "All Visible Links Updated." : "Link Updated.";
         }
 
-        // DELETE
+        // DELETE (SINGLE)
         if (isset($_POST['delete_link'])) {
-            $pdo->prepare("DELETE FROM shared_links WHERE id = ?")->execute([$_POST['del_id']]);
+            $pdo->prepare("DELETE FROM shared_links WHERE id = ?")->execute([$_POST['delete_link']]);
             $msg = "Link Deleted.";
         }
 
-        // APPROVE
+        // BULK DELETE
+        if (isset($_POST['bulk_delete_links'])) {
+            if (!empty($_POST['del_ids']) && is_array($_POST['del_ids'])) {
+                $ids = array_map('intval', $_POST['del_ids']);
+                $in  = str_repeat('?,', count($ids) - 1) . '?';
+                $pdo->prepare("DELETE FROM shared_links WHERE id IN ($in)")->execute($ids);
+                $msg = "Bulk Deletion Executed.";
+            } else {
+                $msg = "No links selected for deletion.";
+            }
+        }
+
+// APPROVE
         if (isset($_POST['approve_link'])) {
             $lid = $_POST['link_id'];
             $title_val = trim($_POST['link_title']);
@@ -311,23 +475,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Link Approved.";
         }
         
-        // BAN
+        // REMOVE (SILENT DELETE)
+        if (isset($_POST['remove_link'])) {
+            $lid = $_POST['link_id'];
+            $pdo->prepare("DELETE FROM shared_links WHERE id = ?")->execute([$lid]);
+            $msg = "Link Removed from Queue (Not Banned).";
+        }
+        
+ // BAN
         if (isset($_POST['ban_link'])) {
+            $lid = $_POST['link_id'];
+            
+            // 1. Ban the specific clicked link immediately
             $stmt = $pdo->prepare("UPDATE shared_links SET status = 'banned' WHERE id = ?");
-            $stmt->execute([$_POST['link_id']]);
+            $stmt->execute([$lid]);
             
             $url_val = $_POST['url_val'] ?? '';
-            $parsed = parse_url($url_val);
-            $domain = $parsed['host'] ?? $url_val;
-            
-            if ($domain) {
-                $pdo->prepare("INSERT INTO banned_patterns (pattern, reason) VALUES (?, 'Malicious Link')")->execute([$domain]);
-                $msg = "Link Banned & Domain '$domain' added to Blacklist.";
+            $ban_target = '';
+
+            // 2. Smart Extraction: CAPTURE GROUP $m[1] ensures we get JUST the hash
+            if (preg_match('/([a-z2-7]{56})(\.onion)?/i', $url_val, $m)) {
+                $ban_target = $m[1]; // V3 Hash (56 chars)
+            } elseif (preg_match('/([a-z2-7]{16})(\.onion)?/i', $url_val, $m)) {
+                $ban_target = $m[1]; // V2 Hash (16 chars)
             } else {
-                $msg = "Link Banned.";
+                // Fallback: Use hostname for clearnet
+                $parsed = parse_url($url_val);
+                $ban_target = $parsed['host'] ?? $url_val;
+            }
+            
+            $ban_target = strtolower(trim($ban_target));
+
+            if (!empty($ban_target)) {
+                // 3. Unique Constraint: Check if pattern already exists
+                $dup = $pdo->prepare("SELECT id FROM banned_patterns WHERE pattern = ?");
+                $dup->execute([$ban_target]);
+                
+                if (!$dup->fetch()) {
+                    // Add to Automod
+                    $pdo->prepare("INSERT INTO banned_patterns (pattern, reason) VALUES (?, 'Malicious Link')")
+                        ->execute([$ban_target]);
+                    
+                    // 4. RETROACTIVE AUTO-BAN (The "Duplicate" Fix)
+                    // Instantly ban ANY pending link that matches this new pattern
+                    $retro_pat = "%" . $ban_target . "%";
+                    $pdo->prepare("UPDATE shared_links SET status='banned' WHERE url LIKE ? AND status='pending'")
+                        ->execute([$retro_pat]);
+                        
+                    $msg = "Link Banned. Pattern '$ban_target' added. Queue scrubbed of duplicates.";
+                } else {
+                    $msg = "Link Banned (Pattern '$ban_target' was already in Automod).";
+                }
+            } else {
+                $msg = "Link Banned (Could not extract valid pattern).";
             }
         }
-    }
+    } // <--- END LINK ACTIONS
 
     // 7. AUTOMOD ACTIONS
     if ($tab === 'automod') {
@@ -339,18 +542,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Username Restrictions Updated.";
         }
 
-        // B. Content Patterns
+// B. Content Patterns
         if (isset($_POST['add_pattern'])) {
-            $pat = trim($_POST['pattern']);
-            if ($pat) {
-                $pdo->prepare("INSERT INTO banned_patterns (pattern, reason) VALUES (?, ?)")
-                    ->execute([$pat, $_POST['reason'] ?? 'Manual Ban']);
-                $msg = "Pattern Added.";
+            $raw_pat = trim($_POST['pattern']);
+            $final_pat = '';
+
+            // SMART NORMALIZATION
+            // Capture Group 1 ($m[1]) isolates the hash from the .onion extension
+            if (preg_match('/([a-z2-7]{56})(\.onion)?/i', $raw_pat, $m)) {
+                $final_pat = $m[1]; 
+            } 
+            elseif (preg_match('/([a-z2-7]{16})(\.onion)?/i', $raw_pat, $m)) {
+                $final_pat = $m[1];
+            }
+            else {
+                $parsed = parse_url($raw_pat);
+                $final_pat = $parsed['host'] ?? $raw_pat; 
+            }
+
+            $final_pat = strtolower(trim($final_pat));
+          
+
+            if ($final_pat) {
+                // Check duplicate
+                $dup = $pdo->prepare("SELECT id FROM banned_patterns WHERE pattern = ?");
+                $dup->execute([$final_pat]);
+
+                if (!$dup->fetch()) {
+                    $pdo->prepare("INSERT INTO banned_patterns (pattern, reason) VALUES (?, ?)")
+                        ->execute([$final_pat, $_POST['reason'] ?? 'Manual Ban']);
+                    
+                    // RETROACTIVE BAN: Scrub queue for this new manual pattern
+                    $retro_pat = "%" . $final_pat . "%";
+                    $pdo->prepare("UPDATE shared_links SET status='banned' WHERE url LIKE ? AND status='pending'")
+                        ->execute([$retro_pat]);
+
+                    $msg = "Pattern '$final_pat' Added & Queue Scrubbed.";
+                } else {
+                    $msg = "Pattern '$final_pat' already exists.";
+                }
             }
         }
         if (isset($_POST['delete_pattern'])) {
             $pdo->prepare("DELETE FROM banned_patterns WHERE id = ?")->execute([$_POST['pattern_id']]);
             $msg = "Pattern Removed.";
+        }
+    }
+
+    // 8. PERMISSIONS (OWNER ONLY)
+    if ($tab === 'perms' && $_SESSION['rank'] >= 10) {
+        if (isset($_POST['save_perms'])) {
+            // [ADDED] Save moved settings
+            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('invite_min_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$_POST['invite_min_rank'], $_POST['invite_min_rank']]);
+            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('alert_new_user_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$_POST['alert_new_user_rank'], $_POST['alert_new_user_rank']]);
+
+            $perms = [
+                'perm_chat_delete' => (int)$_POST['p_chat_del'],
+                'perm_user_ban' => (int)$_POST['p_ban'],
+                'perm_user_kick' => (int)$_POST['p_kick'],
+                'perm_user_nuke' => (int)$_POST['p_nuke'],
+                'perm_view_hidden' => (int)$_POST['p_hidden'],
+                'perm_link_bypass' => (int)$_POST['p_link'],
+                'perm_create_post' => (int)$_POST['p_post'],
+                'perm_invite' => (int)$_POST['p_invite'],
+                'perm_view_logs' => (int)$_POST['p_logs'],
+                'perm_manage_users' => (int)$_POST['p_users'],
+                'perm_chat_config' => (int)$_POST['p_chat_conf'],
+                'perm_view_mod_panel' => (int)$_POST['p_mod_panel']
+            ];
+            $json = json_encode($perms);
+            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('permissions_config', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$json, $json]);
+            $msg = "Permissions Matrix Updated.";
         }
     }
 }
@@ -413,15 +675,37 @@ if ($tab === 'logs') {
 <body class="admin-mode <?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?>>
 
 <div class="admin-layout">
-    <div class="sidebar">
+<div class="sidebar">
         <div style="padding: 0 20px 20px 20px; color: #fff; font-weight: bold;">ADMIN_V2</div>
-        <a href="?view=config" class="<?= $tab=='config'?'active':'' ?>">GENERAL CONFIG</a>
-        <a href="?view=users" class="<?= $tab=='users'?'active':'' ?>">USER MANAGEMENT</a>
+        
+        <?php if($my_rank >= 10): ?>
+            <a href="?view=config" class="<?= $tab=='config'?'active':'' ?>">GENERAL CONFIG</a>
+        <?php endif; ?>
+
+        <?php if($my_rank >= $req_users): ?>
+            <a href="?view=users" class="<?= $tab=='users'?'active':'' ?>">USER MANAGEMENT</a>
+        <?php endif; ?>
+
         <a href="?view=posts" class="<?= $tab=='posts'?'active':'' ?>">POST MANAGEMENT</a>
-        <a href="?view=logs" class="<?= $tab=='logs'?'active':'' ?>">SECURITY LOGS</a>
-        <a href="?view=chat" class="<?= $tab=='chat'?'active':'' ?>">CHAT CONTROL</a>
+
+        <?php if($my_rank >= $req_logs): ?>
+            <a href="?view=logs" class="<?= $tab=='logs'?'active':'' ?>">SECURITY LOGS</a>
+        <?php endif; ?>
+
+        <?php if($my_rank >= $req_chat): ?>
+            <a href="?view=chat" class="<?= $tab=='chat'?'active':'' ?>">CHAT CONTROL</a>
+        <?php endif; ?>
+
         <a href="?view=links" class="<?= $tab=='links'?'active':'' ?>">LINK MANAGEMENT</a>
-        <a href="?view=automod" class="<?= $tab=='automod'?'active':'' ?>">AUTOMOD</a>
+
+        <?php if($my_rank >= $req_automod): ?>
+            <a href="?view=automod" class="<?= $tab=='automod'?'active':'' ?>">AUTOMOD</a>
+        <?php endif; ?>
+
+        <?php if($my_rank >= 10): ?>
+            <a href="?view=perms" class="<?= $tab=='perms'?'active':'' ?>" style="color:#d19a66;">[ OWNER PERMS ]</a>
+        <?php endif; ?>
+
         <a href="index.php" style="margin-top: 50px; border-top: 1px solid #333;">&lt; RETURN TO SITE</a>
     </div>
 
@@ -431,99 +715,117 @@ if ($tab === 'logs') {
         <div class="panel-header"><h2 class="panel-title">System Configuration</h2></div>
         <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
         
-        <form method="POST" enctype="multipart/form-data" style="max-width: 600px;">
+<form method="POST" enctype="multipart/form-data">
             
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px;">
-                <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 0;">ACCESS CONTROL</h3>
-                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size: 0.7rem;">
-                    <input type="checkbox" name="reg_enabled" value="1" <?= ($settings['registration_enabled']??'1')=='1' ? 'checked' : '' ?>>
-                    <span style="color:#ccc;">ALLOW REGISTRATIONS</span>
-                </label>
-            </div>
-            <div class="input-group">
-                <label>REGISTRATION CLOSED MESSAGE</label>
-                <textarea name="reg_msg" style="height: 80px;"><?= htmlspecialchars($settings['registration_msg'] ?? "Registration Closed.") ?></textarea>
-            </div>
-
-            <h3 style="color:#6a9c6a; font-size:0.9rem; margin-bottom:15px;">CAPTCHA PARAMETERS</h3>
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                <div class="input-group"><label>Grid Width</label><input type="number" name="grid_w" value="<?= $settings['captcha_grid_w']?>"></div>
-                <div class="input-group"><label>Grid Height</label><input type="number" name="grid_h" value="<?= $settings['captcha_grid_h']?>"></div>
-                <div class="input-group"><label>Cell Size (px)</label><input type="number" name="cell_size" value="<?= $settings['captcha_cell_size']?>"></div>
-            </div>
-            
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
-                <div class="input-group"><label>Active Colors (Min)</label><input type="number" name="active_min" value="<?= $settings['captcha_active_min'] ?? 3 ?>"></div>
-                <div class="input-group"><label>Active Colors (Max)</label><input type="number" name="active_max" value="<?= $settings['captcha_active_max'] ?? 5 ?>"></div>
-            </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
-                <div class="input-group"><label>Target Min</label><input type="number" name="min_sum" value="<?= $settings['captcha_min_sum']?>"></div>
-                <div class="input-group"><label>Target Max</label><input type="number" name="max_sum" value="<?= $settings['captcha_max_sum']?>"></div>
-            </div>
-
-            <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 20px 0 15px 0;">SITE CONTROLS</h3>
-            
-            <div class="input-group">
-                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; color:#e5c07b; border:1px solid #333; padding:10px; background:#111;">
-                    <input type="checkbox" name="show_nodes" value="1" <?= ($settings['show_online_nodes']??'1')=='1' ? 'checked' : '' ?>>
-                    SHOW ONLINE NODES COUNT ON LOGIN
-                </label>
-            </div>
-
-            <div class="input-group">
-                <label>MAX CHAT HISTORY (Pruning Limit)</label>
-                <input type="number" name="max_history" value="<?= $settings['max_chat_history'] ?? 150 ?>" min="10" style="width:100%; padding:10px;">
-            </div>
-            <div class="input-group">
-                <label>PGP Challenge Message</label>
-                <textarea name="pgp_msg" style="height: 60px;"><?= htmlspecialchars($settings['pgp_message'] ?? '') ?></textarea>
-            </div>
-            <div class="input-group">
-                <label>Login Welcome Message (BBCode)</label>
-                <textarea name="login_msg" style="height: 60px;"><?= htmlspecialchars($settings['login_message'] ?? '') ?></textarea>
-            </div>
-            <div class="input-group">
-                <label>Chat Emoji Presets</label>
-                <input type="text" name="emoji_presets" value="<?= htmlspecialchars($settings['chat_emoji_presets'] ?? '❤️,🔥,👍,💀') ?>" style="width:100%; padding:10px;">
-            </div>
-            <div class="input-group">
-                <label>Color Palette (JSON)</label>
-                <textarea name="palette" style="height: 100px; font-family: monospace;"><?= htmlspecialchars($settings['palette_json']) ?></textarea>
-            </div>
-
-            <h3 style="color:#6a9c6a; font-size:0.9rem; margin: 20px 0 15px 0;">GLOBAL VISUAL THEME</h3>
-            
-            <div class="input-group" style="border: 1px dashed #333; padding: 10px; margin-bottom: 15px;">
-                <label style="color: #e5c07b;">INVITE SYSTEM RESTRICTION</label>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 0.7rem; color: #666;">Min Rank:</span>
-                    <input type="number" name="invite_min_rank" value="<?= $settings['invite_min_rank'] ?? 5 ?>" min="1" max="10" style="width: 60px; text-align: center;">
+            <h3 style="color:#6a9c6a; font-size:0.9rem; margin:0 0 10px 0; border-bottom:1px solid #333;">ACCESS & REGISTRATION</h3>
+            <div class="setting-grid">
+                <div class="input-group">
+                    <label style="color:#e06c75;">REGISTRATION</label>
+                    <select name="reg_enabled" style="background:#111; color:#fff; border:1px solid #333; padding:8px;">
+                        <option value="1" <?= ($settings['registration_enabled']??'1')=='1' ? 'selected' : '' ?>>OPEN</option>
+                        <option value="0" <?= ($settings['registration_enabled']??'1')=='0' ? 'selected' : '' ?>>CLOSED</option>
+                    </select>
+                </div>
+                <div class="input-group span-2">
+                    <label>Registration Closed Message</label>
+                    <input type="text" name="reg_msg" value="<?= htmlspecialchars($settings['registration_msg'] ?? "Registration Closed.") ?>">
                 </div>
             </div>
 
-            <div class="input-group">
-                <label>Theme Selection</label>
-                <select name="site_theme" style="width:100%; background:#080808; border:1px solid #333; color:#ccc; padding:10px;">
-                    <option value="" <?= ($settings['site_theme']??'')==''?'selected':'' ?>>Default (System)</option>
-                    <option value="theme-christmas" <?= ($settings['site_theme']??'')=='theme-christmas'?'selected':'' ?>>Christmas</option>
-                    <option value="theme-spooky" <?= ($settings['site_theme']??'')=='theme-spooky'?'selected':'' ?>>Halloween / Spooky</option>
-                    <option value="theme-matrix" <?= ($settings['site_theme']??'')=='theme-matrix'?'selected':'' ?>>Matrix / Terminal</option>
-                </select>
+            <h3 style="color:#6a9c6a; font-size:0.9rem; margin:15px 0 10px 0; border-bottom:1px solid #333;">CAPTCHA CONFIG</h3>
+            <div class="setting-grid" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="input-group"><label>Grid W</label><input type="number" name="grid_w" value="<?= $settings['captcha_grid_w']?>"></div>
+                <div class="input-group"><label>Grid H</label><input type="number" name="grid_h" value="<?= $settings['captcha_grid_h']?>"></div>
+                <div class="input-group"><label>Cell (px)</label><input type="number" name="cell_size" value="<?= $settings['captcha_cell_size']?>"></div>
+                <div class="input-group"><label>Sum Min</label><input type="number" name="min_sum" value="<?= $settings['captcha_min_sum']?>"></div>
+                <div class="input-group"><label>Sum Max</label><input type="number" name="max_sum" value="<?= $settings['captcha_max_sum']?>"></div>
+                <div class="input-group"><label>Active Min</label><input type="number" name="active_min" value="<?= $settings['captcha_active_min'] ?? 3 ?>"></div>
+                <div class="input-group"><label>Active Max</label><input type="number" name="active_max" value="<?= $settings['captcha_active_max'] ?? 5 ?>"></div>
             </div>
 
-            <div class="input-group">
-                <label>Background Image</label>
-                <input type="hidden" name="saved_bg_url" value="<?= htmlspecialchars($settings['site_bg_url']??'') ?>">
-                <input type="file" name="bg_upload" style="background:#080808; border:1px solid #333; padding:10px; width:100%;">
-                <?php if(!empty($settings['site_bg_url'])): ?>
-                    <div style="margin-top:5px; padding:5px; border:1px solid #333; background:#111;">
-                        <label style="color:#e06c75; font-size:0.7rem; cursor:pointer;"><input type="checkbox" name="remove_bg"> REMOVE BACKGROUND</label>
-                        <div style="font-size:0.7rem; color:#666;"><?= htmlspecialchars($settings['site_bg_url']) ?></div>
+            <h3 style="color:#6a9c6a; font-size:0.9rem; margin:15px 0 10px 0; border-bottom:1px solid #333;">VISUALS & CONTENT</h3>
+            <div class="setting-grid">
+                <div class="input-group">
+                    <label>Site Theme</label>
+                    <select name="site_theme" style="background:#111; color:#fff; border:1px solid #333; padding:8px; width:100%;">
+                        <option value="" <?= ($settings['site_theme']??'')==''?'selected':'' ?>>Default</option>
+                        <option value="theme-christmas" <?= ($settings['site_theme']??'')=='theme-christmas'?'selected':'' ?>>Christmas</option>
+                        <option value="theme-spooky" <?= ($settings['site_theme']??'')=='theme-spooky'?'selected':'' ?>>Spooky</option>
+                        <option value="theme-matrix" <?= ($settings['site_theme']??'')=='theme-matrix'?'selected':'' ?>>Matrix</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                     <label>Max History</label>
+                     <input type="number" name="max_history" value="<?= $settings['max_chat_history'] ?? 150 ?>">
+                </div>
+                 <div class="input-group">
+                    <label>Show Online Count</label>
+                    <select name="show_nodes" style="background:#111; color:#fff; border:1px solid #333; padding:8px; width:100%;">
+                        <option value="1" <?= ($settings['show_online_nodes']??'1')=='1' ? 'selected' : '' ?>>YES</option>
+                        <option value="0" <?= ($settings['show_online_nodes']??'1')=='0' ? 'selected' : '' ?>>NO</option>
+                    </select>
+                </div>
+<div class="input-group span-full">
+                    <label>Background Image (Upload)</label>
+                    <input type="hidden" name="saved_bg_url" value="<?= htmlspecialchars($settings['site_bg_url']??'') ?>">
+                    <input type="file" name="bg_upload" style="background:#111; border:1px solid #333; padding:5px; width:100%;">
+                    <?php if(!empty($settings['site_bg_url'])): ?>
+                        <div style="font-size:0.7rem; margin-top:5px;">
+                            <label><input type="checkbox" name="remove_bg"> Remove: <?= htmlspecialchars($settings['site_bg_url']) ?></label>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="setting-grid">
+                <div class="input-group span-full">
+                    <label>PGP Challenge Message</label>
+                    <textarea name="pgp_msg" style="height: 60px;"><?= htmlspecialchars($settings['pgp_message'] ?? '') ?></textarea>
+                </div>
+                <div class="input-group span-full">
+                    <label>Login Welcome (BBCode)</label>
+                    <textarea name="login_msg" style="height: 60px;"><?= htmlspecialchars($settings['login_message'] ?? '') ?></textarea>
+                </div>
+                <div class="input-group span-full">
+                    <label>Emoji Presets (CSV)</label>
+                    <input type="text" name="emoji_presets" value="<?= htmlspecialchars($settings['chat_emoji_presets'] ?? '❤️,🔥,👍,💀') ?>">
+                </div>
+
+                <div class="input-group span-full">
+                    <label>Palette Manager (Visual Editor)</label>
+                    <div style="background:#080808; border:1px solid #333; padding:15px;">
+                        
+                        <div style="display:grid; grid-template-columns: 2fr 1fr 50px; gap:10px; margin-bottom:10px; color:#666; font-size:0.7rem; border-bottom:1px solid #222; padding-bottom:5px;">
+                            <span>COLOR NAME</span><span>HEX SELECTOR</span><span>DEL</span>
+                        </div>
+                        
+                        <?php 
+                        $vis_pal = json_decode($settings['palette_json'] ?? '[]', true);
+                        foreach($vis_pal as $name => $rgb): 
+                            $hex = sprintf("#%02x%02x%02x", $rgb[0], $rgb[1], $rgb[2]);
+                        ?>
+                        <div style="display:grid; grid-template-columns: 2fr 1fr 50px; gap:10px; margin-bottom:8px;">
+                            <input type="text" name="pal_names[]" value="<?= htmlspecialchars($name) ?>" placeholder="Name" style="margin:0;">
+                            <input type="color" name="pal_hexs[]" value="<?= $hex ?>" style="padding:0; height:36px; width:100%; cursor:pointer; background:none; border:1px solid #333;">
+                            <button type="submit" name="del_palette_key" value="<?= htmlspecialchars($name) ?>" style="background:#220505; color:#e06c75; border:1px solid #e06c75; cursor:pointer; font-weight:bold;">X</button>
+                        </div>
+                        <?php endforeach; ?>
+                        
+                        <div style="margin-top:20px; border-top:1px dashed #333; padding-top:15px;">
+                            <div style="font-size:0.7rem; color:#6a9c6a; margin-bottom:8px; font-weight:bold;">+ ADD NEW COLOR</div>
+                            <div style="display:grid; grid-template-columns: 2fr 1fr 50px; gap:10px;">
+                                <input type="text" name="new_pal_name" placeholder="New Name (e.g. NeonCyan)" style="margin:0;">
+                                <input type="color" name="new_pal_hex" value="#ffffff" style="padding:0; height:36px; width:100%; cursor:pointer; background:none; border:1px solid #333;">
+                                <div style="display:flex; align-items:center; justify-content:center; color:#555; font-size:0.65rem;">(Save)</div>
+                            </div>
+                        </div>
+
                     </div>
-                <?php endif; ?>
+                    <input type="hidden" name="palette" value="<?= htmlspecialchars($settings['palette_json'] ?? '') ?>">
+                </div>
             </div>
 
-            <button type="submit" class="btn-primary" style="margin-top: 20px;">APPLY CHANGES</button>
+            <button type="submit" class="btn-primary" style="margin-top: 20px;">APPLY & SAVE PALETTE</button>
         </form>
         <?php endif; ?>
 
@@ -531,6 +833,37 @@ if ($tab === 'logs') {
         <div class="panel-header"><h2 class="panel-title">User Registry</h2></div>
         <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
 
+        <div style="margin-bottom: 25px; border: 1px solid #333; background: #0b0b0b;">
+            <div style="padding: 8px 15px; background: #111; border-bottom: 1px solid #222; color: #e06c75; font-size: 0.75rem; font-weight: bold;">
+                ACTIVE PENALTIES (BANNED / MUTED / SLOWED)
+            </div>
+            <div style="padding: 10px;">
+                <?php 
+                // Fetch penalized users
+                $penalized = $pdo->query("SELECT id, username, is_banned, is_muted, slow_mode_override FROM users WHERE is_banned=1 OR is_muted=1 OR slow_mode_override > 0")->fetchAll();
+                if(empty($penalized)): 
+                ?>
+                    <div style="color: #444; font-size: 0.7rem; font-style: italic;">No active penalties found. System Clean.</div>
+                <?php else: foreach($penalized as $pu): ?>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #222; padding: 5px 0;">
+                        <span style="font-size: 0.8rem; color: #ccc;">
+                            <?= htmlspecialchars($pu['username']) ?> <span style="color:#666; font-size:0.7rem;">[ID: <?= $pu['id'] ?>]</span>
+                        </span>
+                        <div style="display: flex; gap: 10px;">
+                            <?php if($pu['is_banned']): ?>
+                                <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unban" class="badge" style="background:#220505; color:#e06c75; border:1px solid #e06c75; cursor:pointer;">UNBAN</button></form>
+                            <?php endif; ?>
+                            <?php if($pu['is_muted']): ?>
+                                <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unmute" class="badge" style="background:#1a1a05; color:#e5c07b; border:1px solid #e5c07b; cursor:pointer;">UNMUTE</button></form>
+                            <?php endif; ?>
+                            <?php if($pu['slow_mode_override'] > 0): ?>
+                                <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unslow" class="badge" style="background:#0f1a1a; color:#56b6c2; border:1px solid #56b6c2; cursor:pointer;">RESET SPEED (<?= $pu['slow_mode_override'] ?>s)</button></form>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; endif; ?>
+            </div>
+        </div>
         <details style="margin-bottom: 20px; border: 1px solid #333; background: #111;">
             <summary style="padding: 15px; cursor: pointer; color: #e5c07b; font-size: 0.8rem; font-weight: bold; outline: none;">RANK DEFINITIONS [+]</summary>
             <div style="padding: 15px; border-top: 1px solid #333;">
@@ -544,42 +877,108 @@ if ($tab === 'logs') {
             </div>
         </details>
         
+        <div style="margin-bottom:15px; display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">
+            <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
+                <strong style="color:#61afef; display:block; margin-bottom:5px;">PRESET: GHOST BLUE</strong>
+                <code>font-style:italic; opacity:0.8; [color=#61afef]{u}[/color]</code>
+            </div>
+            <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
+                <strong style="color:#98c379; display:block; margin-bottom:5px;">PRESET: PROTOCOL</strong>
+                <code>color:#98c379; text-transform:uppercase; letter-spacing:1px;</code>
+            </div>
+            <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
+                <strong style="color:#d19a66; display:block; margin-bottom:5px;">PRESET: TERMINAL</strong>
+                <code>color:#d19a66; border-bottom:1px solid #444;</code>
+            </div>
+        </div>
         <table class="data-table">
             <thead>
                 <tr>
-                    <th style="width: 50px;">ID</th>
-                    <th>Username</th>
-                    <th style="width: 60px;">Rank</th>
-                    <th>Created</th>
-                    <th style="width: 160px;">Action</th>
+                    <th style="width: 40px; text-align:center;">ID</th>
+                    <th style="width: 220px;">User / Rank</th>
+                    <th>Style (CSS or BBCode)</th>
+                    <th style="width: 160px; text-align:right;">Actions</th>
                 </tr>
             </thead>
             <tbody>
             <?php foreach($users as $u): ?>
-            <tr>
-                <td>#<?= $u['id'] ?></td>
-                <td><a href="profile.php?id=<?= $u['id'] ?>" style="color: #e0e0e0;"><?= htmlspecialchars($u['username']) ?></a></td>
-                <td><span class="badge badge-<?= $u['rank'] ?>"><?= $u['rank'] ?></span></td>
-                <td><?= $u['created_at'] ?></td>
-                <td style="white-space: nowrap;">
-                    <?php if($u['rank'] < 10): ?>
-                    <form method="POST" style="display:flex; align-items:center; gap:4px; margin:0;">
-                        <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                        <input type="number" name="new_rank" value="<?= $u['rank'] ?>" style="width:40px; padding:2px; color:#fff; text-align:center; height:20px; font-size:0.7rem;">
-                        <button type="submit" name="update_rank" class="badge" style="cursor:pointer; border:none; padding:3px 6px;">OK</button>
-                        <span style="color:#444;">|</span>
-                        <label style="font-size:0.6rem; color:#e06c75; display:flex; align-items:center; gap:2px;"><input type="checkbox" name="confirm_del" required> ?</label>
-                        <button type="submit" name="delete_user" class="badge" style="cursor:pointer; border:none; background:#e06c75; padding:3px 6px;">X</button>
-                    </form>
-                    <?php else: ?><span style="color:#555; font-size:0.6rem;">[ PROTECTED ]</span><?php endif; ?>
+            <tr style="border-bottom: 1px solid #222;">
+                <form method="POST">
+                <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                
+                <td style="vertical-align:middle; text-align:center; color:#444; font-size:0.7rem;">
+                    <?= $u['id'] ?>
                 </td>
+                
+                <td style="vertical-align:middle; padding: 5px;">
+                    <div style="display:flex; align-items:center; gap: 8px;">
+                        <div style="position:relative; width:50px;">
+                            <span style="position:absolute; left:3px; top:50%; transform:translateY(-50%); color:#444; font-size:0.55rem; pointer-events:none;">R</span>
+                            <input type="number" name="new_rank" value="<?= $u['rank'] ?>" 
+                                   style="width:100%; padding-left:10px; padding-right:2px; background:#0b0b0b; border:1px solid #333; color:#d19a66; text-align:center; font-size:0.75rem; height:24px; box-sizing:border-box;">
+                        </div>
+
+                        <div style="line-height: 1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" style="text-decoration:none;">
+                            <?php
+                                $raw_style = $u['chat_color'] ?? '';
+                                $display_name = htmlspecialchars($u['username']);
+                                
+                                if (strpos($raw_style, '{u}') !== false || (str_starts_with(trim($raw_style), '[') && str_ends_with(trim($raw_style), ']'))) {
+                                    $processed = str_replace('{u}', $display_name, $raw_style);
+                                    if (strpos($raw_style, '{u}') === false) $processed = $raw_style . $display_name; 
+                                    echo parse_bbcode($processed);
+                                } elseif (strpos($raw_style, ':') !== false || strpos($raw_style, ';') !== false) {
+                                    echo "<span style='$raw_style'>$display_name</span>";
+                                } else {
+                                    $c = $raw_style ?: '#ccc';
+                                    echo "<span style='color:$c'>$display_name</span>";
+                                }
+                            ?>
+                            </a>
+                        </div>
+                    </div>
+                </td>
+                
+                <td style="vertical-align:middle; padding: 5px;">
+                    <input type="text" name="chat_color" value="<?= htmlspecialchars($u['chat_color']??'') ?>" 
+                           placeholder="CSS or [b]{u}[/b]" 
+                           style="width:100%; height:26px; background:#0b0b0b; border:1px solid #333; color:#bbb; font-size:0.7rem; padding:0 5px; font-family:monospace; box-sizing:border-box;">
+                </td>
+                
+                <td style="vertical-align:middle; padding: 5px; text-align:right;">
+                    <div style="display:flex; align-items:center; justify-content:flex-end; gap:4px; white-space:nowrap;">
+                        
+                        <button type="submit" name="update_rank" title="Save Changes" 
+                                style="height:24px; background:#0f1a0f; border:1px solid #3d6e3d; color:#6a9c6a; cursor:pointer; padding:0 8px; font-size:0.65rem; font-weight:bold; line-height:22px;">
+                            SAVE
+                        </button>
+
+                        <?php if($u['rank'] < 10): ?>
+                            <button type="submit" name="ban_user" title="Ban & Kick" onclick="return confirm('Ban this user?');"
+                                    style="height:24px; background:#1a0f0f; border:1px solid #6e3d3d; color:#e06c75; cursor:pointer; padding:0 8px; font-size:0.65rem; font-weight:bold; line-height:22px;">
+                                BAN
+                            </button>
+
+                            <div style="display:flex; align-items:center; background:#111; border:1px solid #333; height:24px; padding:0 4px;">
+                                <input type="checkbox" name="confirm_del" title="Tick to Delete" style="margin:0 4px 0 0; vertical-align:middle;">
+                                <button type="submit" name="delete_user" title="Delete Permanently" 
+                                        style="border:none; background:none; color:#888; cursor:pointer; font-weight:bold; font-size:0.65rem; padding:0; line-height:24px;">
+                                    DEL
+                                </button>
+                            </div>
+                        <?php endif; ?>
+
+                    </div>
+                </td>
+                </form>
             </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
         <?php endif; ?>
 
-        <?php if($tab === 'posts'): ?>
+                <?php if($tab === 'posts'): ?>
         <div class="panel-header">
             <h2 class="panel-title">Transmissions</h2>
             <a href="create_post.php" class="btn-primary" style="width:auto; padding: 8px 15px; font-size:0.7rem;">+ NEW</a>
@@ -589,9 +988,14 @@ if ($tab === 'logs') {
             <thead><tr><th>ID</th><th>Title</th><th>Author</th><th>Date</th><th>Action</th></tr></thead>
             <tbody>
             <?php foreach($posts as $p): ?>
+            <?php
+                // TRUNCATE TITLE (Safe Mode)
+                $short_title = strip_tags($p['title']);
+                if (strlen($short_title) > 40) $short_title = substr($short_title, 0, 40) . "...";
+            ?>
             <tr>
                 <td><?= $p['id'] ?></td>
-                <td><?= htmlspecialchars($p['title']) ?></td>
+                <td><?= htmlspecialchars($short_title) ?></td>
                 <td><?= htmlspecialchars($p['username']) ?></td>
                 <td><?= $p['created_at'] ?></td>
                 <td>
@@ -664,7 +1068,20 @@ if ($tab === 'logs') {
                             <option value="CRIT" <?= ($settings['chat_pin_style']??'')=='CRIT'?'selected':'' ?>>Purple [CRITICAL]</option>
                             <option value="MAINT" <?= ($settings['chat_pin_style']??'')=='MAINT'?'selected':'' ?>>Gold [MAINTENANCE]</option>
                             <option value="SUCCESS" <?= ($settings['chat_pin_style']??'')=='SUCCESS'?'selected':'' ?>>Green [SUCCESS]</option>
+                            <option value="CUSTOM" <?= ($settings['chat_pin_style']??'')=='CUSTOM'?'selected':'' ?>>[ CUSTOM ]</option>
+                            <option value="NONE" <?= ($settings['chat_pin_style']??'')=='NONE'?'selected':'' ?>>[ NONE ]</option>
                         </select>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+                        <div class="input-group" style="margin:0;">
+                            <label>Custom Hex</label>
+                            <input type="text" name="chat_pin_custom_color" value="<?= htmlspecialchars($settings['chat_pin_custom_color'] ?? '#6a9c6a') ?>" placeholder="#ffffff">
+                        </div>
+                        <div class="input-group" style="margin:0;">
+                            <label>Custom Label/Emoji</label>
+                            <input type="text" name="chat_pin_custom_emoji" value="<?= htmlspecialchars($settings['chat_pin_custom_emoji'] ?? '') ?>" placeholder="e.g. 📢">
+                        </div>
                     </div>
 
                     <button type="submit" name="save_chat_config" class="btn-primary" style="margin-top:5px;">APPLY CONFIG</button>
@@ -694,16 +1111,24 @@ if ($tab === 'logs') {
 
         <div style="margin-top:20px; padding: 20px; background: #111; border: 1px solid #333;">
             <h3 style="margin-top:0; color:#ccc; font-size:0.9rem;">SYSTEM BROADCAST</h3>
-            <form method="POST" style="display:flex; gap:10px;">
-                <select name="sys_msg_type" style="background:#000; color:#fff; border:1px solid #444; padding:10px;">
-                    <option value="WARNING">RED ALERT</option>
-                    <option value="INFO">BLUE INFO</option>
-                    <option value="SUCCESS">GREEN SUCCESS</option>
-                    <option value="CRITICAL">PURPLE CRITICAL</option>
-                    <option value="MAINT">ORANGE MAINT</option>
-                </select>
-                <input type="text" name="sys_msg_text" placeholder="Message content..." required style="flex-grow:1; background:#000; color:#fff; border:1px solid #444; padding:10px;">
-                <button type="submit" name="send_sys_msg" class="btn-primary" style="width:auto; padding:0 20px;">BROADCAST</button>
+            <form method="POST">
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <select name="sys_msg_type" style="background:#000; color:#fff; border:1px solid #444; padding:10px; width:150px;">
+                        <option value="INFO">BLUE INFO</option>
+                        <option value="WARNING">RED ALERT</option>
+                        <option value="SUCCESS">GREEN SUCCESS</option>
+                        <option value="CRITICAL">PURPLE CRITICAL</option>
+                        <option value="MAINT">ORANGE MAINT</option>
+                        <option value="BLANK">BLANK NOTICE</option>
+                    </select>
+                    <input type="text" name="sys_msg_text" placeholder="Message content..." required style="flex-grow:1; background:#000; color:#fff; border:1px solid #444; padding:10px;">
+                </div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <span style="font-size:0.7rem; color:#666;">CUSTOM OVERRIDE:</span>
+                    <input type="text" name="sys_custom_label" placeholder="Label (e.g. NOTICE)" style="width:140px; background:#000; border:1px solid #333; color:#fff; padding:5px; font-size:0.75rem;">
+                    <input type="text" name="sys_custom_hex" placeholder="Hex (e.g. #ff0000)" style="width:130px; background:#000; border:1px solid #333; color:#fff; padding:5px; font-size:0.75rem;">
+                    <button type="submit" name="send_sys_msg" class="btn-primary" style="width:auto; padding:5px 20px; height:32px; font-size:0.7rem;">BROADCAST</button>
+                </div>
             </form>
         </div>
         <?php endif; ?>
@@ -771,16 +1196,27 @@ if ($tab === 'logs') {
                     <span style="color:#666; font-size:0.7rem;">[<?= htmlspecialchars($l['posted_by']) ?>]</span>
                     <a href="<?= htmlspecialchars($l['url']) ?>" target="_blank" style="color:#e5c07b; margin-left:10px; text-decoration:none; font-family:monospace;"><?= htmlspecialchars(substr($l['url'], 0, 60)) ?>...</a>
                 </td>
-                <td style="vertical-align:middle;">
-                    <form method="POST" style="display:flex; gap:5px; align-items:center; margin:0;">
+<td style="vertical-align:middle; text-align:right;">
+                    <form method="POST" style="display:flex; gap:6px; align-items:center; justify-content:flex-end; margin:0;">
                         <input type="hidden" name="link_id" value="<?= $l['id'] ?>">
                         <input type="hidden" name="url_val" value="<?= htmlspecialchars($l['url']) ?>">
                         
-                        <input type="text" name="link_title" placeholder="Link Title..." style="width:120px; padding:5px; font-size:0.7rem; background:#000; color:#fff; border:1px solid #333;">
-                        <input type="text" name="approval_msg" placeholder="Approve Msg..." style="width:120px; padding:5px; font-size:0.7rem; background:#000; color:#aaa; border:1px solid #333;">
+                        <input type="text" name="link_title" placeholder="Title..." 
+                               style="width:90px; background:transparent; border:none; border-bottom:1px solid #333; color:#e5c07b; font-size:0.7rem; padding:2px 5px; outline:none;">
+                               
+                        <input type="text" name="approval_msg" placeholder="Msg..." 
+                               style="width:80px; background:transparent; border:none; border-bottom:1px solid #333; color:#888; font-size:0.7rem; padding:2px 5px; outline:none;">
                         
-                        <button type="submit" name="approve_link" class="badge" style="background:#6a9c6a; color:#000; border:none; cursor:pointer; padding:6px 10px; font-weight:bold;">OK</button>
-                        <button type="submit" name="ban_link" class="badge" style="background:#e06c75; color:#000; border:none; cursor:pointer; padding:6px 10px; font-weight:bold;">BAN</button>
+                        <div style="width:1px; height:15px; background:#222; margin:0 2px;"></div>
+
+                        <button type="submit" name="approve_link" title="Approve"
+                                style="background:#0f1a0f; border:1px solid #6a9c6a; color:#6a9c6a; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold; font-family:monospace;">OK</button>
+                        
+                        <button type="submit" name="remove_link" title="Remove (Silent)"
+                                style="background:#161616; border:1px solid #444; color:#888; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold; font-family:monospace;">RM</button>
+                        
+                        <button type="submit" name="ban_link" title="Ban Domain"
+                                style="background:#1a0f0f; border:1px solid #e06c75; color:#e06c75; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold; font-family:monospace;">BAN</button>
                     </form>
                 </td>
             </tr>
@@ -788,44 +1224,89 @@ if ($tab === 'logs') {
             </tbody>
         </table>
 
-        <div class="panel-header"><h2 class="panel-title">Active Database</h2></div>
+        <div class="panel-header" style="align-items:center;">
+            <h2 class="panel-title">Active Database</h2>
+            <form method="GET" style="display:flex; gap:10px;">
+                <input type="hidden" name="view" value="links">
+                <select name="db_cat" onchange="this.form.submit()" style="width:auto; padding:5px; font-size:0.7rem;">
+                    <option value="">[ VIEW ALL ]</option>
+                    <?php foreach($cats as $c): ?>
+                        <option value="<?= $c['id'] ?>" <?= (isset($_GET['db_cat']) && $_GET['db_cat'] == $c['id']) ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($c['name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <noscript><button type="submit" class="badge">FILTER</button></noscript>
+            </form>
+        </div>
+
+        <form method="POST">
+        <div style="margin-bottom:10px; padding:8px; background:#111; border:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:0.7rem; color:#666;">SELECT via Checkbox to Bulk Delete</div>
+            <div style="display:flex; gap:10px;">
+                <button type="submit" name="save_all_links" class="badge" style="background:#222; border:1px solid #444; color:#ccc; padding:5px 10px; cursor:pointer;">SAVE ALL CHANGES</button>
+                <button type="submit" name="bulk_delete_links" class="badge" style="background:#e06c75; border:none; color:#000; padding:5px 10px; cursor:pointer; font-weight:bold;" onclick="return confirm('DELETE SELECTED?');">BULK DELETE</button>
+            </div>
+        </div>
+
         <table class="data-table">
             <thead>
                 <tr>
+                    <th style="width: 30px;">#</th>
                     <th>Content (Title & URL)</th>
-                    <th style="width: 150px;">Controls</th>
+                    <th style="width: 80px; text-align:right;">Action</th>
                 </tr>
             </thead>
             <tbody>
             <?php 
-            $approved = $pdo->query("SELECT * FROM shared_links WHERE status = 'approved' ORDER BY created_at DESC LIMIT 50")->fetchAll();
-            foreach($approved as $l): ?>
+            // FILTER LOGIC
+            $db_cat_filter = $_GET['db_cat'] ?? '';
+            $sql_db = "SELECT * FROM shared_links WHERE status = 'approved'";
+            $params_db = [];
+            
+            if ($db_cat_filter !== '') {
+                $sql_db .= " AND category_id = ?";
+                $params_db[] = $db_cat_filter;
+            }
+            
+            $sql_db .= " ORDER BY created_at DESC LIMIT 100";
+            $stmt_db = $pdo->prepare($sql_db);
+            $stmt_db->execute($params_db);
+            $approved = $stmt_db->fetchAll();
+
+            foreach($approved as $l): 
+                $lid = $l['id'];
+            ?>
             <tr>
-                <form method="POST">
+                <td style="vertical-align:top; padding-top:12px;">
+                    <input type="checkbox" name="del_ids[]" value="<?= $lid ?>">
+                </td>
                 <td>
-                    <input type="hidden" name="edit_id" value="<?= $l['id'] ?>">
-                    <input type="text" name="edit_title" value="<?= htmlspecialchars($l['title'] ?? '') ?>" placeholder="No Title" style="width:100%; background:transparent; border:none; border-bottom:1px dashed #333; color:#d19a66; font-weight:bold; margin-bottom:2px;">
+                    <input type="text" name="links[<?= $lid ?>][title]" value="<?= htmlspecialchars($l['title'] ?? '') ?>" placeholder="No Title" style="width:100%; background:transparent; border:none; border-bottom:1px dashed #333; color:#d19a66; font-weight:bold; margin-bottom:5px;">
+                    
                     <div style="display:flex; gap:10px; align-items:center;">
-                        <select name="edit_cat" style="background:#111; color:#888; border:1px solid #333; font-size:0.65rem; padding:2px; width:auto;">
+                        <select name="links[<?= $lid ?>][cat]" style="background:#111; color:#888; border:1px solid #333; font-size:0.65rem; padding:2px; width:auto;">
                             <option value="">[ Uncategorized ]</option>
                             <?php foreach($cats as $c): ?>
                                 <option value="<?= $c['id'] ?>" <?= ($l['category_id'] == $c['id']) ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <div style="font-size:0.7rem; color:#555; font-family:monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:300px;"><?= htmlspecialchars($l['url']) ?></div>
+                        <a href="<?= htmlspecialchars($l['url']) ?>" target="_blank" style="font-size:0.7rem; color:#555; font-family:monospace; text-decoration:none; border-bottom:1px dotted #444; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:350px; display:inline-block;">
+                            <?= htmlspecialchars($l['url']) ?>
+                        </a>
                     </div>
                 </td>
-                <td style="vertical-align:middle;">
-                    <div style="display:flex; gap:5px; align-items:center;">
-                         <button type="submit" name="update_link" class="badge" style="background:#222; border:1px solid #444; color:#ccc; cursor:pointer; padding:5px 10px;">SAVE</button>
-                         <button type="submit" name="delete_link" name="del_id" value="<?= $l['id'] ?>" class="badge" style="background:#e06c75; border:none; color:#000; cursor:pointer; padding:6px 10px; font-weight:bold;" onclick="this.form.append('delete_link', '1'); this.form.append('del_id', '<?= $l['id'] ?>');">DEL</button>
+                <td style="text-align:right; vertical-align:middle;">
+                    <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+                         <button type="submit" name="update_link" value="<?= $lid ?>" class="badge" style="background:#222; border:1px solid #444; color:#6a9c6a; cursor:pointer; width:50px;">SAVE</button>
+                         <button type="submit" name="delete_link" value="<?= $lid ?>" class="badge" style="background:#332; border:1px solid #444; color:#e06c75; cursor:pointer; width:50px;" onclick="return confirm('Delete this link?');">DEL</button>
                     </div>
                 </td>
-                </form>
             </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
+        </form>
 
 <?php endif; ?>
         <?php if($tab === 'automod'): ?>
@@ -869,6 +1350,163 @@ if ($tab === 'logs') {
             <?php endforeach; ?>
             </tbody>
         </table>
+        <h3 style="color:#d19a66; font-size:0.9rem; margin-top:30px; margin-bottom:10px;">DATABASE BAN HISTORY (INDIVIDUAL LINKS)</h3>
+        <div style="background:#111; padding:15px; border:1px solid #333;">
+            <p style="font-size:0.7rem; color:#666; margin-top:0;">
+                These specific links were banned individually. They are not in the "Patterns" list above, but they still block the user.
+            </p>
+            
+            <?php 
+            // Handle Unban Action
+            if (isset($_POST['unban_history_link'])) {
+                $pdo->prepare("DELETE FROM shared_links WHERE id = ?")->execute([$_POST['hl_id']]);
+                echo "<div class='success'>Link history cleared. User can now repost this.</div>";
+            }
+// Handle "Convert to Pattern" Action
+            if (isset($_POST['convert_to_pattern'])) {
+                $raw = $_POST['hl_url'];
+                $pat = $raw;
+                
+                // Smart Extract Logic (Force $m[1])
+                if (preg_match('/([a-z2-7]{56})(\.onion)?/i', $raw, $m)) $pat = $m[1];
+                elseif (preg_match('/([a-z2-7]{16})(\.onion)?/i', $raw, $m)) $pat = $m[1];
+                else { $p = parse_url($raw); $pat = $p['host'] ?? $raw; }
+                
+                // Check dupes
+                $chk = $pdo->prepare("SELECT id FROM banned_patterns WHERE pattern = ?");
+                $chk->execute([$pat]);
+                if(!$chk->fetch()) {
+                    $pdo->prepare("INSERT INTO banned_patterns (pattern, reason) VALUES (?, 'Converted from History')")->execute([$pat]);
+                    echo "<div class='success'>Added '$pat' to Global Blacklist.</div>";
+                } else {
+                    echo "<div class='error'>Pattern '$pat' is already in the global list.</div>";
+                }
+            }
+            ?>
+
+            <table class="data-table">
+                <thead><tr><th>Original Link</th><th>Posted By</th><th>Action</th></tr></thead>
+                <tbody>
+                <?php 
+                $zombies = $pdo->query("SELECT * FROM shared_links WHERE status = 'banned' ORDER BY id DESC")->fetchAll();
+                if(empty($zombies)) echo "<tr><td colspan='3' style='text-align:center; color:#444; padding:10px;'>No legacy bans found. Clean.</td></tr>";
+                
+                foreach($zombies as $z): ?>
+                <tr>
+                    <td style="color:#e06c75; font-family:monospace; word-break:break-all;">
+                        <?= htmlspecialchars($z['url']) ?>
+                    </td>
+                    <td style="color:#888;"><?= htmlspecialchars($z['posted_by']) ?></td>
+                    <td>
+                        <form method="POST" style="display:flex; gap:5px;">
+                            <input type="hidden" name="hl_id" value="<?= $z['id'] ?>">
+                            <input type="hidden" name="hl_url" value="<?= htmlspecialchars($z['url']) ?>">
+                            
+                            <button type="submit" name="unban_history_link" title="Remove Ban"
+                                    style="background:#1a1a1a; border:1px solid #444; color:#ccc; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold;">
+                                UNBAN
+                            </button>
+                            
+                            <button type="submit" name="convert_to_pattern" title="Move to Blacklist"
+                                    style="background:#1a0f0f; border:1px solid #e06c75; color:#e06c75; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold;">
+                                ADD RULE
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+        <?php if($tab === 'perms' && $_SESSION['rank'] >= 10): ?>
+        <?php
+            $def_perms = [
+                'perm_chat_delete' => 5, 'perm_user_ban' => 9, 'perm_user_kick' => 5,
+                'perm_user_nuke' => 10, 'perm_view_hidden' => 9, 'perm_link_bypass' => 9,
+                'perm_create_post' => 9, 'perm_invite' => 5, 'perm_view_mod_panel' => 9
+            ];
+            $cur_perms = json_decode($settings['permissions_config'] ?? '', true) ?? $def_perms;
+        ?>
+        <div class="panel-header"><h2 class="panel-title">Clearance Level Configuration</h2></div>
+        <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
+
+        <div style="background:#111; border:1px solid #333; padding:15px;">
+            <p style="color:#666; font-size:0.75rem; margin-top:0;">
+                Define the minimum Rank required to perform specific system actions. 
+                <br><strong style="color:#e06c75;">WARNING: Setting values too low may compromise security.</strong>
+            </p>
+            <form method="POST" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;">
+                
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#d19a66;">BAN USERS</label>
+                    <input type="number" name="p_ban" value="<?= $cur_perms['perm_user_ban'] ?? 9 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#d19a66;">NUKE ACCOUNT</label>
+                    <input type="number" name="p_nuke" value="<?= $cur_perms['perm_user_nuke'] ?? 10 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#e5c07b;">KICK USERS</label>
+                    <input type="number" name="p_kick" value="<?= $cur_perms['perm_user_kick'] ?? 5 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#e5c07b;">DELETE MSGS</label>
+                    <input type="number" name="p_chat_del" value="<?= $cur_perms['perm_chat_delete'] ?? 5 ?>" min="1" max="10">
+                </div>
+                
+                <div class="input-group" style="margin:0;">
+                    <label>GENERATE INVITES</label>
+                    <input type="number" name="p_invite" value="<?= $cur_perms['perm_invite'] ?? 5 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label>CREATE POSTS</label>
+                    <input type="number" name="p_post" value="<?= $cur_perms['perm_create_post'] ?? 9 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label>BYPASS LINKS</label>
+                    <input type="number" name="p_link" value="<?= $cur_perms['perm_link_bypass'] ?? 9 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label>VIEW HIDDEN</label>
+                    <input type="number" name="p_hidden" value="<?= $cur_perms['perm_view_hidden'] ?? 9 ?>" min="1" max="10">
+                </div>
+
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#e06c75;">VIEW LOGS</label>
+                    <input type="number" name="p_logs" value="<?= $cur_perms['perm_view_logs'] ?? 10 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#d19a66;">MANAGE USERS</label>
+                    <input type="number" name="p_users" value="<?= $cur_perms['perm_manage_users'] ?? 9 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#56b6c2;">CHAT CONFIG</label>
+                    <input type="number" name="p_chat_conf" value="<?= $cur_perms['perm_chat_config'] ?? 9 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#e06c75;">MOD PANEL ACCESS</label>
+                    <input type="number" name="p_mod_panel" value="<?= $cur_perms['perm_view_mod_panel'] ?? 9 ?>" min="1" max="10">
+                </div>
+                
+                <div class="input-group" style="margin:0;">
+                    <label>MIN INVITE RANK</label>
+                    <input type="number" name="invite_min_rank" value="<?= $settings['invite_min_rank'] ?? 5 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label>NEW USER ALERT</label>
+                    <input type="number" name="alert_new_user_rank" value="<?= $settings['alert_new_user_rank'] ?? 9 ?>" min="1" max="10">
+                </div>
+
+                <div style="grid-column: 1 / span 2; margin-top:5px;">
+                    <button type="submit" name="save_perms" class="btn-primary" style="background:#1a0505; border-color:#e06c75; color:#e06c75; width:100%; height:30px; padding:0;">UPDATE MATRIX</button>
+                </div>
+                <div style="grid-column: 3 / span 2; margin-top:5px; display:flex; align-items:center; justify-content:center; color:#444; font-size:0.6rem; border:1px solid #222;">
+                    SECURE_V2 // PERM_ISOLATION_ACTIVE
+                </div>
+            </form>
+        </div>
         <?php endif; ?>
 
     </div>

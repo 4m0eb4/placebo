@@ -43,10 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['pending_nick'] = $nick_val;
                 $_SESSION['guest_step'] = 'VERIFY';
                 
-                // Init Captcha
-                $_SESSION['grid_seed'] = time();
+                // Init Captcha (Deterministic)
                 $_SESSION['captcha_time'] = time();
-                $_SESSION['captcha_req'] = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+                
+                // GENERATE GRID
+                $gen = generate_deterministic_grid($palette, $gridW, $gridH, $min_sum, $max_sum, $active_min, $active_max);
+                $_SESSION['captcha_grid'] = $gen['grid'];
+                $_SESSION['captcha_req']  = $gen['req'];
                 
                 header("Location: guest_login.php"); exit;
             }
@@ -60,33 +63,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ((time() - $_SESSION['captcha_time']) > $timer_login) {
             $error = "TIMEOUT. PATTERN EXPIRED.";
             // Don't reset step, just regen captcha
-            $_SESSION['grid_seed'] = time(); $_SESSION['captcha_time'] = time();
-            $_SESSION['captcha_req'] = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+            $_SESSION['captcha_time'] = time();
+            $gen = generate_deterministic_grid($palette, $gridW, $gridH, $min_sum, $max_sum, $active_min, $active_max);
+            $_SESSION['captcha_grid'] = $gen['grid'];
+            $_SESSION['captcha_req']  = $gen['req'];
         } else {
-            // Logic match
+            // DETERMINISTIC CHECK
             $sel = $_POST['cells'] ?? [];
-            srand($_SESSION['grid_seed']); 
-            $map = []; $keys = array_keys($palette);
-            for ($r = 0; $r < $gridH; $r++) {
-                for ($c = 0; $c < $gridW; $c++) {
-                    $map[$r][$c] = $keys[array_rand($keys)];
-                }
-            }
-            $tally = []; $fail = false; $req = $_SESSION['captcha_req'];
+            $stored_grid = $_SESSION['captcha_grid'] ?? [];
+            
+            $tally = []; 
+            $fail = false; 
+            $req = $_SESSION['captcha_req'];
+
+            // 1. Tally User Selection against Stored Grid
             foreach ($sel as $p) {
-                $x = explode('-', $p);
-                if(isset($map[(int)$x[0]][(int)$x[1]])) {
-                    $col = $map[(int)$x[0]][(int)$x[1]];
-                    if (!isset($tally[$col])) $tally[$col] = 0; $tally[$col]++;
-                    if (!isset($req[$col])) $fail = true;
+                $x = explode('-', $p); // "row-col"
+                $r = (int)$x[0]; 
+                $c = (int)$x[1];
+                
+                if(isset($stored_grid[$r][$c])) {
+                    $actual_color = $stored_grid[$r][$c];
+                    
+                    // Fail if color not in requirements
+                    if (!isset($req[$actual_color])) { 
+                        $fail = true; 
+                    } else {
+                        if (!isset($tally[$actual_color])) $tally[$actual_color] = 0; 
+                        $tally[$actual_color]++;
+                    }
                 }
             }
-            if (!$fail) foreach ($req as $c => $n) if (($tally[$c] ?? 0) !== $n) $fail = true;
+
+            // 2. Check if counts match exactly
+            if (!$fail) {
+                foreach ($req as $color => $needed) {
+                    if (($tally[$color] ?? 0) !== $needed) $fail = true;
+                }
+            }
 
             if ($fail) {
                 $error = "PATTERN FAILED.";
-                $_SESSION['grid_seed'] = time(); $_SESSION['captcha_time'] = time();
-                $_SESSION['captcha_req'] = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+                $_SESSION['captcha_time'] = time();
+                // Regen Grid
+                $gen = generate_deterministic_grid($palette, $gridW, $gridH, $min_sum, $max_sum, $active_min, $active_max);
+                $_SESSION['captcha_grid'] = $gen['grid'];
+                $_SESSION['captcha_req']  = $gen['req'];
             } else {
                 // --- SUCCESS: ACTIVATE SESSION ---
                 $invite = $_SESSION['pending_token'];

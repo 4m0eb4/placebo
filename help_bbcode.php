@@ -137,10 +137,12 @@ require 'bbcode.php';
 
 <div class="container">
 
+    <?php if (!isset($_GET['modal'])): ?>
     <div class="manual-head">
         <span class="head-title">COMMAND REFERENCE</span>
-        <a href="chat_stream.php" class="btn-close">CLOSE [X]</a>
+        <a href="chat.php" class="btn-close">BACK TO CHAT</a>
     </div>
+    <?php endif; ?>
 
     <div class="section-bar">Security & Obfuscation</div>
     <div class="grid-2-col">

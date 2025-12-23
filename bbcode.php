@@ -113,6 +113,7 @@ function get_bbcode_menu() {
                     <code>[glitch]Hack[/glitch]</code>
                     <code>[shake]Panic[/shake]</code>
                     <code>[rainbow]RGB[/rainbow]</code>
+                    <code>[xmas]Message[/xmas]</code>
                 </div>
             </div>
         </div>
@@ -134,7 +135,7 @@ function get_bbcode_menu() {
 }
 
 function parse_bbcode($text) {
-
+    global $pdo;
     // --- 0) Extract [pgp] blocks BEFORE htmlspecialchars/nl2br so they remain atomic/copyable
     $pgp_blocks = [];
     $text = preg_replace_callback('/\[pgp\](.*?)\[\/pgp\]/is', function ($m) use (&$pgp_blocks) {
@@ -176,6 +177,11 @@ function parse_bbcode($text) {
         '/\[mirror\](.*?)\[\/mirror\]/s',
         '/\[flip\](.*?)\[\/flip\]/s',
         '/\[updown\](.*?)\[\/updown\]/s',
+        
+        // GAME & ACTION TAGS
+        '/\[me\](.*?)\[\/me\]/s',
+        '/\[coin\](.*?)\[\/coin\]/s',
+        '/\[roll\](.*?)\[\/roll\]/s',
 
         // FX TAGS
         '/\[spoiler\](.*?)\[\/spoiler\]/s',
@@ -187,6 +193,8 @@ function parse_bbcode($text) {
         '/\[glitch\](.*?)\[\/glitch\]/s',
         '/\[pulse\](.*?)\[\/pulse\]/s',
         '/\[shake\](.*?)\[\/shake\]/s',
+        '/\[xmas\](.*?)\[\/xmas\]/s',
+        '/\[greet\](.*?)\[\/greet\]/s',
     ];
 
     $replace = [
@@ -200,8 +208,8 @@ function parse_bbcode($text) {
         '<h3 style="color:var(--accent-primary); margin:10px 0 5px 0;">$1</h3>',
         '<hr style="border:0; border-bottom:1px solid var(--border-color); margin:20px 0;">',
         '<hr class="hr-$1" style="border:0; height:2px; margin:20px 0; background:var(--accent-primary);">', // Simple fallback for HR
-        '<div style="text-align:center;">$1</div>',
-        '<div style="text-align:right;">$1</div>',
+        '<div style="text-align:center; width:100%;">$1</div>',
+        '<div style="text-align:right; width:100%;">$1</div>',
         '<blockquote style="border-left:3px solid var(--accent-primary); margin:10px 0; padding:10px 15px; background:var(--panel-bg); color:var(--text-main);"><strong style="color:var(--accent-secondary); display:block; margin-bottom:5px;">$1 wrote:</strong>$2</blockquote>',
         '<blockquote style="border-left:3px solid var(--accent-primary); margin:10px 0; padding:10px 15px; background:var(--panel-bg); color:var(--text-main);">$1</blockquote>',
         '<pre style="background:#080808; padding:10px; border:1px solid var(--border-color); overflow-x:auto; color:#ccc;">$1</pre>',
@@ -218,6 +226,11 @@ function parse_bbcode($text) {
         '<span class="bb-mirror">$1</span>',
         '<span class="bb-flip">$1</span>',
         '<span class="bb-upside">$1</span>',
+        
+        // GAME & ACTION REPLACEMENTS
+        '<span class="bb-me">➜ $1</span>',
+        '<span class="bb-coin"><span style="font-size:1.2em;">🪙</span> $1</span>',
+        '<span class="bb-roll"><span style="font-size:1.2em;">🎲</span> $1</span>',
 
         // FX REPLACEMENTS
         '<span class="bb-spoiler" title="Hover to reveal">$1</span>',
@@ -229,6 +242,11 @@ function parse_bbcode($text) {
         '<span class="anim-glitch">$1</span>',
         '<span class="anim-pulse">$1</span>',
         '<span class="anim-shake">$1</span>',
+        '<div style="background:#051020; border:1px solid #61afef; color:#fff; padding:10px; margin:10px 0; font-family:monospace; line-height:1.4;"><span style="color:#61afef; font-weight:bold; margin-right:10px;">[INFO]</span><span style="letter-spacing:2px;">🎄 <span style="color:#e06c75;">M</span><span style="color:#98c379;">E</span><span style="color:#e06c75;">R</span><span style="color:#e06c75;">R</span><span style="color:#98c379;">Y</span> <span style="color:#e06c75;">C</span><span style="color:#98c379;">H</span><span style="color:#e06c75;">R</span><span style="color:#98c379;">I</span><span style="color:#e06c75;">S</span><span style="color:#98c379;">T</span><span style="color:#e06c75;">M</span><span style="color:#98c379;">A</span><span style="color:#e06c75;">S</span> 🎄</span><br><span style="color:#61afef; font-size:1.2rem; filter:drop-shadow(0 0 5px #61afef);">❄ ❄ ❄ ❄ ❄ ❄ ❄</span><br>$1</div>',
+        '<div style="padding:25px; margin:15px 0; border:1px dashed #333; background:rgba(255,255,255,0.02); text-align:center; font-family:monospace;">
+            <div style="font-size:1.8rem; letter-spacing:8px; margin-bottom:15px; color:#fff; text-shadow:0 0 10px rgba(255,255,255,0.3);">$1</div>
+            <div style="font-size:1.2rem; color:#666; letter-spacing:15px;">❄ ❄ ❄ ❄ ❄</div>
+         </div>',
     ];
 
     $text = preg_replace($find, $replace, $text);
@@ -268,7 +286,49 @@ function parse_bbcode($text) {
         $text
     );
 
-    
+    // C. @Username Tagging
+    $text = preg_replace_callback('/@([a-zA-Z0-9_-]+)/', function($matches) use ($pdo) {
+        $target_user = $matches[1];
+        // Check registered users first
+        $stmt = $pdo->prepare("SELECT chat_color FROM users WHERE username = ? LIMIT 1");
+        $stmt->execute([$target_user]);
+        $color = $stmt->fetchColumn();
+
+        // Check guests if no registered user found
+        if (!$color) {
+            $stmtG = $pdo->prepare("SELECT guest_color FROM guest_tokens WHERE guest_username = ? LIMIT 1");
+            $stmtG->execute([$target_user]);
+            $color = $stmtG->fetchColumn();
+        }
+
+        if ($color) {
+            return '<span class="mention-tag" style="color:' . $color . '; font-weight:bold; border-bottom:1px dotted ' . $color . ';">@' . htmlspecialchars($target_user) . '</span>';
+        }
+        return '@' . $target_user;
+    }, $text);
+
+    // 5.8) MENTIONS (User & Guest)
+    // Fixes the "Unknown column 'username'" error by using guest_username
+    $text = preg_replace_callback('/@([a-zA-Z0-9_-]+)/', function($matches) use ($pdo) {
+        $target_user = $matches[1];
+        
+        // 1. Check Registered Users
+        $stmt = $pdo->prepare("SELECT chat_color FROM users WHERE username = ? LIMIT 1");
+        $stmt->execute([$target_user]);
+        $color = $stmt->fetchColumn();
+
+        // 2. Check Guests (Fix applied here)
+        if (!$color) {
+            $stmtG = $pdo->prepare("SELECT guest_color FROM guest_tokens WHERE guest_username = ? LIMIT 1");
+            $stmtG->execute([$target_user]);
+            $color = $stmtG->fetchColumn();
+        }
+
+        if ($color) {
+            return '<span class="mention-tag" style="color:' . $color . '; font-weight:bold; border-bottom:1px dotted ' . $color . ';">@' . htmlspecialchars($target_user) . '</span>';
+        }
+        return '@' . $target_user;
+    }, $text);
 
 // 6) Restore PGP blocks as <pre> and auto-fix armor formatting for copy/decrypt
 foreach ($pgp_blocks as $token => $raw) {

@@ -15,10 +15,14 @@ if (!isset($_SESSION['fully_authenticated'])) {
     } 
     // Check Registered Status
     else {
-        $stmt = $pdo->prepare("SELECT is_banned, force_logout FROM users WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT is_banned, force_logout, is_muted, slow_mode_override FROM users WHERE id = ?");
         $stmt->execute([$_SESSION['user_id'] ?? 0]);
         $u = $stmt->fetch();
-        if ($u && ($u['is_banned'] == 1 || $u['force_logout'] == 1)) $kill = true;
+        if ($u) {
+            if ($u['is_banned'] == 1 || $u['force_logout'] == 1) $kill = true;
+            if (isset($u['is_muted']) && $u['is_muted'] == 1) $_SESSION['is_muted'] = true; else unset($_SESSION['is_muted']);
+            if (isset($u['slow_mode_override']) && $u['slow_mode_override'] > 0) $_SESSION['user_slow'] = (int)$u['slow_mode_override']; else unset($_SESSION['user_slow']);
+        }
     }
 }
 
@@ -68,8 +72,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         die("LOCKED"); // Simple block, UI handled below
     }
 
-    // 0.5 ENFORCE SLOW MODE
-    if ($slow_sec > 0 && $my_rank < 9) {
+    // 0.5 ENFORCE SLOW MODE (Global OR User Override)
+    $actual_slow = $_SESSION['user_slow'] ?? $slow_sec;
+    
+    if ($actual_slow > 0 && $my_rank < 9) {
         $l_stmt = $pdo->prepare("SELECT created_at FROM chat_messages WHERE user_id = ? ORDER BY id DESC LIMIT 1");
         $l_stmt->execute([$_SESSION['user_id']]);
         if ($last_time = $l_stmt->fetchColumn()) {
@@ -88,8 +94,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($_POST['quote_data'])) {
         $msg = $msg . $_POST['quote_data'];
     }
+if (!empty($msg)) {
+        // 3.5 COMMAND INTERCEPT (Game & Action Logic)
+        if (str_starts_with($msg, '/')) {
+            // /me Action
+            if (preg_match('#^/me\s+(.+)$#is', $msg, $m)) {
+                $msg = "[me]" . trim($m[1]) . "[/me]";
+            }
+            // /cointoss
+        elseif (preg_match('#^/cointoss#i', $msg)) {
+                $res = (random_int(0, 1) === 1) ? 'HEADS' : 'TAILS';
+                $c_code = ($res === 'HEADS') ? '#e5c07b' : '#98c379'; 
+                $msg = "[coin][color={$c_code}][b]{$res}[/b][/color][/coin]";
+            }
+            // /roll [max]
+elseif (preg_match('#^/roll(\s+(\d+))?#i', $msg, $m)) {
+                $max = isset($m[2]) ? (int)$m[2] : 100;
+                if ($max < 1) $max = 100;
+                $val = random_int(1, $max);
+                $msg = "[roll]Rolled [b]{$val}[/b] (1-{$max})[/roll]";
+            }
+        }
 
-    if (!empty($msg)) {
         // 1. Determine Color
         $color = '#888888';
         if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
@@ -108,13 +134,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // BYPASS: Admins (Rank 9+) skip this and post directly.
         $is_admin = (isset($_SESSION['rank']) && $_SESSION['rank'] >= 9);
         
-        // Regex matches standard URLs OR .onion strings (16-56 lowercase/numbers)
-        if (!$is_admin && preg_match('/(https?:\/\/[^\s]+|[a-z2-7]{16,56}\.onion)/i', $msg, $matches)) {
+        if (!$is_admin && preg_match('/(https?:\/\/[^\s]+|\b[a-z2-7]{56}(\.onion)?\b|\b[a-z2-7]{16}(\.onion)?\b)/i', $msg, $matches)) {
             $url = $matches[0];
             
-            // Fix raw onion links by prepending http://
-            if (strpos($url, 'http') !== 0 && strpos($url, '.onion') !== false) {
+            if (strpos($url, 'http') !== 0) {
                 $url = 'http://' . $url;
+            }
+
+            $banned = false;
+            
+            $p_stmt = $pdo->query("SELECT pattern FROM banned_patterns");
+            while($p = $p_stmt->fetch()) {
+                if (stripos($url, $p['pattern']) !== false) $banned = true;
+            }
+            
+            // REMOVED: History check. Banned Patterns list is now the SINGLE source of truth.
+            
+            if ($banned) {
+                 header("Location: chat_input.php?status=banned_blocked"); exit;
             }
 
             try {
@@ -153,9 +190,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html>
 <head>
-<!DOCTYPE html>
-<html>
-<head>
     <link rel="stylesheet" href="style.css">
     <style>
         /* FLEXBOX LAYOUT: Ensures Notification Bar pushes the Form down naturally */
@@ -166,18 +200,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         .info-bar {
-            flex-shrink: 0; /* Fixed height */
-            width: 100%; 
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
             background: #1a1005 !important; 
             color: #e5c07b !important; 
-            border-bottom: 1px solid #e5c07b !important;
+            border-top: 1px dashed #e5c07b !important;
             padding: 5px 10px; 
             font-size: 0.65rem; 
             display: flex; 
             justify-content: space-between; 
             align-items: center;
             box-sizing: border-box;
+            z-index: 50;
+        }.info-bar a { color: #fff; text-decoration: none; font-weight: bold; }
+
+        .reply-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: #1a1005; 
+            color: #d19a66; 
+            border-top: 1px dashed #d19a66;
+            padding: 5px 10px; 
+            font-size: 0.65rem; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            box-sizing: border-box;
+            z-index: 40;
+            font-weight: bold;
+            font-family: monospace;
         }
+        .reply-bar a { color: #e06c75; text-decoration: none; }
+
+        /* Form fills remaining space */
         .info-bar a { color: #fff; text-decoration: none; font-weight: bold; }
 
         /* Form fills remaining space */
@@ -185,8 +244,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flex: 1; 
             display: flex; 
             width: 100%; 
-            align-items: center; /* Vertically Center the input */
+            align-items: center; 
             padding: 5px; 
+            padding-left: 45px; /* CRITICAL: Reserve space for the overlay button */
             box-sizing: border-box; 
         }
         input { flex: 1; background: #111; border: 1px solid #333; color: #eee; padding: 8px; font-family: inherit; outline: none; height: 30px; box-sizing: border-box; }
@@ -196,47 +256,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 </head>
 <body>
-
-    <?php if($link_pending): ?>
-        <div class="info-bar">
-            <span>[INFO] LINK DETAINED FOR MODERATION</span>
-            <a href="chat_input.php">[ X ]</a>
-        </div>
-        <?php endif; ?>
-
 <?php if($is_locked && $my_rank < 9): ?>
         <div style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; background:#1a0505; color:#e06c75; font-weight:bold; font-size:0.8rem; border:1px solid #e06c75;">
             [ CHAT LOCKED BY ADMIN ]
         </div>
+    <?php elseif(isset($_SESSION['is_muted'])): ?>
+        <div style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; background:#1a0505; color:#e5c07b; font-weight:bold; font-size:0.8rem; border-top:1px dashed #e5c07b;">
+            [ SIGNAL: SILENCED ]
+        </div>
     <?php else: ?>
         
-        <?php if($is_reply): ?>
-            <div style="width:100%; background:#0d0d0d; border-bottom:1px solid #d19a66; border-left: 4px solid #d19a66; color:#d19a66; font-size:0.65rem; padding:4px 10px; font-family:monospace; font-weight:bold; box-sizing:border-box;">
-                >> REPLYING TO: <span style="color:#fff;"><?= htmlspecialchars($reply_user) ?></span>
-                <a href="chat_input.php" style="float:right; color:#e06c75; text-decoration:none;">[CANCEL]</a>
-            </div>
-        <?php endif; ?>
-
         <form method="POST" autocomplete="off">
             <?php if($is_reply): ?>
                 <input type="hidden" name="quote_data" value="<?= "\n[quote=" . htmlspecialchars($reply_user) . "]" . htmlspecialchars($reply_text) . "[/quote]" ?>">
             <?php endif; ?>
             
             <div style="display: flex; width: 100%;">
-<a href="help_bbcode.php" target="_blank" style="background: #161616; color: #6a9c6a; border: 1px solid #333; border-right: none; padding: 0 10px; font-weight: bold; font-size: 1rem; display: flex; align-items: center; text-decoration: none; height: 30px; box-sizing: border-box;" title="Open Formatting Guide">[?]</a>
-            
-            <?php 
+                <?php 
                 $ph = "Type a message...";
-                    if ($slow_sec > 0 && $my_rank < 9) $ph = "Slow Mode: {$slow_sec}s delay active."; 
+                if ($slow_sec > 0 && $my_rank < 9) $ph = "Slow Mode: {$slow_sec}s delay active."; 
                 ?>
                 <input type="text" name="message" placeholder="<?= $ph ?>" autofocus required>
                 <button type="submit">SEND</button>
             </div>
         </form>
+
+        <?php if($link_pending): ?>
+            <div class="info-bar">
+                <span>[INFO] LINK DETAINED FOR MODERATION</span>
+                <a href="chat_input.php">[ X ]</a>
+            </div>
+        <?php endif; ?>
+
+        <?php if(isset($_GET['status']) && $_GET['status'] === 'banned_blocked'): ?>
+            <div class="info-bar" style="background: #220505 !important; color: #e06c75 !important; border-color: #e06c75 !important;">
+                <span>[WARN] LINK IS BLACKLISTED</span>
+                <a href="chat_input.php">[ X ]</a>
+            </div>
+        <?php endif; ?>
+
+        <?php if($is_reply): ?>
+            <div class="reply-bar">
+                <span>>> REPLYING TO: <span style="color:#fff;"><?= htmlspecialchars($reply_user) ?></span></span>
+                <a href="chat_input.php">[ CANCEL ]</a>
+            </div>
+        <?php endif; ?>
+
     <?php endif; ?>
-    <div style="background: #161616; border: 1px solid #333; width: 100%; max-width: 400px; padding: 15px; position: relative;">
-        <a href="chat.php" style="position: absolute; top: 8px; right: 10px; color: #666; text-decoration: none; font-size:0.8rem;">[ CLOSE ]</a>
-        
-        <h2 style="color: #6a9c6a; margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 5px; font-size: 1rem; margin-bottom: 15px;">INVITE SYSTEM</h2>
 </body>
 </html>

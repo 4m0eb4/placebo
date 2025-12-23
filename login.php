@@ -14,17 +14,23 @@ $username_val = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action_initiate'])) {
         $username_val = trim($_POST['username']);
-        $stmt = $pdo->prepare("SELECT id, password_hash FROM users WHERE username = ?");
+        $stmt = $pdo->prepare("SELECT id, password_hash, is_banned FROM users WHERE username = ?");
         $stmt->execute([$username_val]);
         $user = $stmt->fetch();
 
         if ($user && password_verify($_POST['password'], $user['password_hash'])) {
-            $state = 'CHALLENGE';
-            $_SESSION['pending_user'] = $username_val;
-            $_SESSION['grid_seed']    = time();
-            $_SESSION['captcha_time'] = time();
-            // FIX: Added missing arguments $active_min, $active_max
-            $_SESSION['captcha_req']  = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+            if ($user['is_banned'] == 1) {
+                $error = "ACCESS DENIED."; usleep(500000);
+            } else {
+                $state = 'CHALLENGE';
+                $_SESSION['pending_user'] = $username_val;
+                $_SESSION['captcha_time'] = time();
+                
+                // GENERATE DETERMINISTIC GRID
+                $gen = generate_deterministic_grid($palette, $gridW, $gridH, $min_sum, $max_sum, $active_min, $active_max);
+                $_SESSION['captcha_grid'] = $gen['grid'];
+                $_SESSION['captcha_req']  = $gen['req'];
+            }
         } else {
             $error = "ACCESS DENIED."; usleep(300000);
         }
@@ -36,33 +42,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ((time() - $_SESSION['captcha_time']) > $timer_login) {
             $error = "TIMEOUT."; $state = 'LOGIN'; unset($_SESSION['pending_user']);
         } else {
-            // DYNAMIC CHECK
+            // DETERMINISTIC CHECK
             $sel = $_POST['cells'] ?? [];
-            srand($_SESSION['grid_seed']); 
-            $map = []; $keys = array_keys($palette);
+            $stored_grid = $_SESSION['captcha_grid'] ?? [];
             
-            // Rebuild Map using Config dimensions
-            for ($r = 0; $r < $gridH; $r++) {
-                for ($c = 0; $c < $gridW; $c++) {
-                    $map[$r][$c] = $keys[array_rand($keys)];
+            $tally = []; 
+            $fail = false; 
+            $req = $_SESSION['captcha_req'];
+
+            // 1. Tally User Selection against Stored Grid
+            foreach ($sel as $p) {
+                $x = explode('-', $p); // "row-col"
+                $r = (int)$x[0]; 
+                $c = (int)$x[1];
+                
+                if(isset($stored_grid[$r][$c])) {
+                    $actual_color = $stored_grid[$r][$c];
+                    
+                    // If user clicked a color that IS NOT in requirements -> Fail immediately
+                    if (!isset($req[$actual_color])) { 
+                        $fail = true; 
+                    } else {
+                        if (!isset($tally[$actual_color])) $tally[$actual_color] = 0; 
+                        $tally[$actual_color]++;
+                    }
                 }
             }
 
-            $tally = []; $fail = false; $req = $_SESSION['captcha_req'];
-            foreach ($sel as $p) {
-                $x = explode('-', $p);
-                if(isset($map[(int)$x[0]][(int)$x[1]])) {
-                    $col = $map[(int)$x[0]][(int)$x[1]];
-                    if (!isset($tally[$col])) $tally[$col] = 0; $tally[$col]++;
-                    if (!isset($req[$col])) $fail = true;
+            // 2. Check if counts match exactly
+            if (!$fail) {
+                foreach ($req as $color => $needed) {
+                    if (($tally[$color] ?? 0) !== $needed) $fail = true;
                 }
             }
-            if (!$fail) foreach ($req as $c => $n) if (($tally[$c] ?? 0) !== $n) $fail = true;
 
             if ($fail) {
                 $error = "PATTERN FAILED.";
-                $_SESSION['grid_seed'] = time(); $_SESSION['captcha_time'] = time();
-                $_SESSION['captcha_req'] = get_pattern($palette, $min_sum, $max_sum, $active_min, $active_max);
+                $_SESSION['captcha_time'] = time();
+                // Regen Grid
+                $gen = generate_deterministic_grid($palette, $gridW, $gridH, $min_sum, $max_sum, $active_min, $active_max);
+                $_SESSION['captcha_grid'] = $gen['grid'];
+                $_SESSION['captcha_req']  = $gen['req'];
             } else {
                 // UPDATED: Select 'rank' instead of 'is_admin'
                 $stmt = $pdo->prepare("SELECT id, username, pgp_public_key, rank FROM users WHERE username = ?");
@@ -175,7 +195,7 @@ $current_req = $_SESSION['captcha_req'] ?? [];
 <div class="terminal-footer">
             <?php if(($settings['show_online_nodes'] ?? '1') === '1'): ?>
             <div style="margin-top: 15px; font-size: 0.7rem; color: #444;">
-                Active Nodes: <span style="color: #6a9c6a;"><?= $online_count ?></span>
+                Users Online: <span style="color: #6a9c6a;"><?= $online_count ?></span>
             </div>
             <?php endif; ?>
         </div>

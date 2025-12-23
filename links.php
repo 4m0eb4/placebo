@@ -54,7 +54,21 @@ foreach($raw_links as $l) {
         .link-title { color: #fff; font-weight: bold; font-size: 0.85rem; }
         .link-url { color: #6a9c6a; font-family: monospace; font-size: 0.75rem; text-decoration: none; }
         .link-url:hover { text-decoration: underline; color: #fff; }
-        .link-meta { color: #444; font-size: 0.65rem; text-align: right; letter-spacing: -0.5px; }
+        .link-meta { 
+            display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+            min-width: 120px;
+        }
+        .meta-tag {
+            background: #1a1a1a; border: 1px solid #333; 
+            padding: 2px 6px; border-radius: 2px;
+            color: #888; font-size: 0.6rem; font-family: monospace;
+            text-transform: uppercase;
+            display: inline-block;
+            text-align: center;
+        }
+        .meta-cat { color: #d19a66; border-color: #444; }
+        .meta-src { color: #5c6370; }
+        .meta-date { color: #444; border: none; background: transparent; padding: 0; }
         .cat-header {
             color: #d19a66; font-family: monospace; 
             border-bottom: 1px solid #333; margin: 25px 0 10px 0; 
@@ -121,11 +135,9 @@ foreach($raw_links as $l) {
                         </a>
                     </div>
                     <div class="link-meta">
-                        <span style="background:#222; padding:2px 5px; color:#d19a66; margin-right:5px; border:1px solid #333; text-transform:uppercase; font-size:0.6rem;">
-                            <?= htmlspecialchars($l['cat_name'] ?? 'General') ?>
-                        </span><br>
-                        SOURCE: <span style="color:#ccc;"><?= htmlspecialchars($l['posted_by']) ?></span><br>
-                        <?= date('Y-m-d', strtotime($l['created_at'])) ?>
+                        <span class="meta-tag meta-cat"><?= htmlspecialchars($l['cat_name'] ?? 'General') ?></span>
+                        <span class="meta-tag meta-src">BY: <?= htmlspecialchars($l['posted_by']) ?></span>
+                        <span class="meta-tag meta-date"><?= date('M d', strtotime($l['created_at'])) ?></span>
                     </div>
                 </div>
                 <?php endforeach; ?>

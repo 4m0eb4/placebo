@@ -43,11 +43,11 @@ function render_pm($row, $my_id, $target_name) {
                     <span style='font-size:0.7rem;'>WAITING FOR PARTNER APPROVAL...</span>
                   </div>";
         } else {
-            // The button is in the parent frame. We provide a helper link to refresh that frame.
+            // Direct Action Link: Targets _top to Wipe AND Redirect the whole window immediately
             echo "<div style='background:#220505; color:#e06c75; border:1px solid #e06c75; padding:15px; text-align:center; margin:10px 0;'>
                     <strong style='font-size:0.9rem; display:block; margin-bottom:5px; animation: pulse-red 1s infinite;'>⚠️ PARTNER REQUESTED WIPE</strong>
-                    <div style='font-size:0.7rem; color:#aaa; margin-bottom:10px;'>ACTION REQUIRED IN TOOLBAR</div>
-                    <a href='pm_input.php?to={$_GET['to']}' target='pm_input' style='background:#e06c75; color:#000; padding:4px 8px; text-decoration:none; font-weight:bold; font-size:0.7rem;'>[ RELOAD TOOLBAR TO CONFIRM ]</a>
+                    <div style='font-size:0.7rem; color:#aaa; margin-bottom:10px;'>CLICK TO EXECUTE PROTOCOL</div>
+                    <a href='pm_input.php?to={$_GET['to']}&action=confirm_burn&target=top' target='_top' style='background:#e06c75; color:#000; padding:4px 8px; text-decoration:none; font-weight:bold; font-size:0.7rem;'>[ CONFIRM & WIPE NOW ]</a>
                   </div>";
         }
         echo "</div>";
@@ -56,12 +56,18 @@ function render_pm($row, $my_id, $target_name) {
 
     $body = parse_bbcode($row['message']);
     
-    // Action Buttons
+// Action Buttons
     $actions = "";
+    $target_param = $_GET['to'] ?? 0;
+
     if ($is_me) {
-        $target_param = $_GET['to'] ?? 0;
         $del_link = "pm_input.php?action=delete&msg_id={$row['id']}&to={$target_param}";
         $actions = "<a href='$del_link' target='pm_input' style='color:#444; text-decoration:none; margin-left:10px; font-weight:bold;' title='Delete'>[x]</a>";
+    } else {
+        // [REPLY] - Sends parameters to pm_input for the styled box
+        $clean_text = trim(strip_tags($row['message'])); 
+        $reply_qs = http_build_query(['to' => $target_param, 'reply_text' => $clean_text, 'reply_user' => $header_name]);
+        $actions = "<a href='pm_input.php?$reply_qs' target='pm_input' style='color:#555; text-decoration:none; margin-left:10px; font-size:0.65rem;' title='Reply'>[reply]</a>";
     }
 
     echo "<div id='$dom_id' class='pm-msg $cls'>
@@ -124,9 +130,18 @@ function render_pm($row, $my_id, $target_name) {
 <body>
     <div id="msg-container" class="stream-wrapper">
     <?php
-    // 1. Initial Load
+    // 0. Immediate Wipe Display (Triggered by Redirect)
+    if (isset($_GET['wiped'])) {
+        echo "<div class='sys-wipe'>
+                <strong>[ SYSTEM NOTICE ]</strong><br>
+                CONVERSATION HISTORY INCINERATED.<br><br>
+                <a href='pm.php?to=$target_id' target='_top'>[ RE-ESTABLISH CONNECTION ]</a>
+              </div>";
+        exit;
+    }
+
+// 1. Initial Load
     // We order by ASC in SQL so Oldest is first, Newest is last.
-    // CSS column-reverse flips this so Newest (Last) is at the Top.
     $stmt = $pdo->prepare("SELECT * FROM (SELECT * FROM private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY id DESC LIMIT 50) sub ORDER BY id ASC");
     $stmt->execute([$my_id, $target_id, $target_id, $my_id]);
     $msgs = $stmt->fetchAll();
@@ -139,27 +154,42 @@ function render_pm($row, $my_id, $target_name) {
     // Mark Read
     $pdo->prepare("UPDATE private_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ?")->execute([$target_id, $my_id]);
     
+    // Initialize Signal Tracker
+    $stmt_sig = $pdo->query("SELECT MAX(id) FROM chat_signals");
+    $last_sig_id = $stmt_sig->fetchColumn() ?? 0;
+    
     flush();
 
     // 2. Stream Loop
     while(true) {
         
-        // --- CHECK IF WIPED (Burn Logic) ---
-        if ($last_id > 0) {
-            $chk = $pdo->prepare("SELECT id FROM private_messages WHERE id = ?");
-            $chk->execute([$last_id]);
-            if (!$chk->fetch()) {
-                // DB cleared - Show Manual Reconnect Link (NO JS RELOAD)
-                echo "<div class='sys-wipe'>
-                        <strong>[ SYSTEM NOTICE ]</strong><br>
-                        CONVERSATION HISTORY INCINERATED.<br><br>
-                        <a href='pm_stream.php?to=$target_id'>[ RE-ESTABLISH CONNECTION ]</a>
-                      </div>";
-                exit; // Stop stream
-            }
+        // --- A. SIGNAL & DELETION HANDLER (Instant CSS Hide) ---
+        $s_stmt = $pdo->prepare("SELECT * FROM chat_signals WHERE id > ? AND signal_type = 'DELETE_PM' ORDER BY id ASC");
+        $s_stmt->execute([$last_sig_id]);
+        $signals = $s_stmt->fetchAll();
+        
+        foreach($signals as $sig) {
+            $last_sig_id = $sig['id'];
+            $target_msg = (int)$sig['signal_val'];
+            // Instantly hide the message using CSS
+            echo "<style>div[id='pm_{$target_msg}'] { display: none !important; }</style>";
         }
 
-        // --- CHECK NEW MESSAGES ---
+        // --- B. CHECK FOR TOTAL WIPEOUT (Robust) ---
+        // Only trigger the "Incinerated" screen if the DB is ACTUALLY empty.
+        // We perform this check periodically (every ~5 seconds) or if last_id > 0
+        if ($last_id > 0) {
+             // We don't check if "last_id" exists anymore (that caused the bug).
+             // We check if the CONVERSATION count is 0.
+             $chk_count = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)");
+             $chk_count->execute([$my_id, $target_id, $target_id, $my_id]);
+             if ($chk_count->fetchColumn() == 0) {
+                echo "<meta http-equiv='refresh' content='0;url=pm_stream.php?to=$target_id&wiped=1'>";
+                exit; 
+             }
+        }
+
+        // --- C. CHECK NEW MESSAGES ---
         $stmt = $pdo->prepare("SELECT * FROM private_messages WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) AND id > ? ORDER BY id ASC");
         $stmt->execute([$my_id, $target_id, $target_id, $my_id, $last_id]);
         $new = $stmt->fetchAll();
@@ -172,14 +202,12 @@ function render_pm($row, $my_id, $target_name) {
                 }
                 render_pm($m, $my_id, $t_name);
             }
-            // NO JS SCROLL NEEDED: CSS column-reverse handles visual order.
         }
 
         echo " "; // Filler byte to force flush
         flush();
         sleep(1);
         
-        // Break loop if client disconnects
         if (connection_aborted()) break;
     }
     ?>

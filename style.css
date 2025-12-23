@@ -122,7 +122,7 @@ a:hover { color: #7aaiai; }
 }
 .input-group input:focus { border-color: #6a9c6a; }
 .input-group textarea.pgp-box { 
-    height: 150px; 
+    height: 200px; 
     font-size: 0.65rem; 
     white-space: pre-wrap;
 }
@@ -471,6 +471,12 @@ a:hover { color: #7aaiai; }
     text-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
 }
 
+.mention-tag {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 0 3px;
+    border-radius: 3px;
+}
+
 /* [rainbow] Animation */
 @keyframes rainbow-anim { 
     0%{color: #e06c75;} 20%{color: #d19a66;} 40%{color: #e5c07b;} 
@@ -611,7 +617,7 @@ body.theme-matrix {
 /* Header */
 .modal-header {
     background: #1f1f1f;
-    padding: 10px 15px;
+    padding: 2px 15px;
     border-bottom: 1px solid #333;
     display: flex;
     justify-content: space-between;
@@ -934,11 +940,22 @@ html, body.pm-mode { height: 100%; overflow-y: auto; margin: 0; padding: 0; }
 .pm-footer {
     flex: 0 0 auto; background: #111; border-top: 1px solid #333; padding: 10px;
 }
-
-/* 3. System Messages in Stream (Standardized) */
+/* Combined System & Broadcast Box Style */
+.sys-msg, .sys-msg-std {
+    padding: 10px 15px;
+    margin: 8px auto;
+    font-size: 0.8rem;
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    border: 1px solid #333;
+    text-align: center;
+}
 .sys-msg-std {
-    color: #666; font-style: italic; font-size: 0.7rem; 
-    text-align: center; margin: 10px 0; border-top: 1px solid #222; border-bottom: 1px solid #222; padding: 5px;
+    font-style: normal;
 }
 /* --- THEME-AWARE NOTIFICATIONS (Solid, Customizable) --- */
 
@@ -1002,3 +1019,75 @@ body.theme-matrix {
     border-bottom: none !important;
     box-sizing: border-box;
 }
+/* --- BBCODE FX ANIMATIONS --- */
+
+/* [rainbow] */
+@keyframes rainbow-anim { 
+    0%{color: #e06c75;} 20%{color: #d19a66;} 40%{color: #e5c07b;} 
+    60%{color: #98c379;} 80%{color: #56b6c2;} 100%{color: #c678dd;} 
+}
+.anim-rainbow { animation: rainbow-anim 4s linear infinite; font-weight: bold; }
+
+/* [glitch] */
+@keyframes glitch-anim {
+    0% { transform: translate(0); } 20% { transform: translate(-2px, 2px); }
+    40% { transform: translate(-2px, -2px); } 60% { transform: translate(2px, 2px); }
+    80% { transform: translate(2px, -2px); } 100% { transform: translate(0); }
+}
+.anim-glitch { animation: glitch-anim 0.3s infinite; color: #56b6c2; display: inline-block; }
+
+/* [pulse] */
+@keyframes pulse-anim { 0%{opacity:1;} 50%{opacity:0.5;} 100%{opacity:1;} }
+.anim-pulse { animation: pulse-anim 1.5s infinite ease-in-out; color: #e5c07b; }
+
+/* [shake] */
+@keyframes shake-anim {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-2px) rotate(-1deg); }
+    75% { transform: translateX(2px) rotate(1deg); }
+}
+.anim-shake { display: inline-block; animation: shake-anim 0.5s infinite; }
+
+/* [glow] */
+.text-glow {
+    text-shadow: 0 0 5px currentColor, 0 0 10px currentColor;
+    color: #fff;
+}
+/* --- ADMIN COMPACT LAYOUT --- */
+.setting-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+    align-items: end;
+}
+.setting-grid .input-group { margin: 0; }
+.setting-grid label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* WIDER inputs for things like URL/Textarea */
+.span-full { grid-column: 1 / -1; }
+.span-2 { grid-column: span 2; }
+/* WIDER inputs for things like URL/Textarea */
+.span-full { grid-column: 1 / -1; }
+.span-2 { grid-column: span 2; }
+
+/* --- GAME & ACTION STYLES --- */
+.bb-me {
+    color: var(--accent-secondary);
+    font-style: italic;
+    opacity: 0.9;
+}
+
+.bb-coin, .bb-roll {
+    display: inline-block;
+    background: #111;
+    border: 1px solid #333;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin: 2px 0;
+    font-family: monospace;
+    color: #ccc;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+.bb-coin { border-bottom: 2px solid #e5c07b; }
+.bb-roll { border-bottom: 2px solid #56b6c2; }

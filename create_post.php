@@ -15,6 +15,7 @@ $body_val = '';
 $rank_val = 1; // Default Public
 $cutoff_val = 250; // Default Cutoff
 $pinned_val = 0; // Default Not Pinned
+$pin_weight_val = 0; // Default Weight
 $mode_label = 'NEW_POST';
 
 // Load existing post if editing
@@ -28,6 +29,7 @@ if ($edit_id) {
         $rank_val = $post['min_rank'];
         $cutoff_val = $post['preview_cutoff'] ?? 250;
         $pinned_val = $post['is_pinned'] ?? 0;
+        $pin_weight_val = $post['pin_weight'] ?? 0; 
         $mode_label = 'EDIT_POST // ID: ' . $edit_id;
     }
 }
@@ -47,14 +49,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     $cutoff_val = (int)($_POST['cutoff'] ?? 250);
     $pinned_val = isset($_POST['is_pinned']) ? 1 : 0;
+    $p_weight = (int)($_POST['pin_weight'] ?? 0);
     
     // 2. ACTION: PREVIEW
     if (isset($_POST['action_preview'])) {
         if ($title_val && $body_val) {
-            // Added overflow-wrap for preview
+// Added overflow-wrap for preview
             $preview_html = "
             <div style='border:1px dashed #6a9c6a; padding:15px; margin-bottom:20px; background:#051005;'>
-                <div style='color:#e0e0e0; font-weight:bold; border-bottom:1px solid #333; margin-bottom:10px; font-size:0.9rem;'>
+                <div style='color:#e0e0e0; font-weight:bold; border-bottom:1px solid #333; margin-bottom:10px; font-size:0.9rem; overflow-wrap: anywhere; word-break: break-word;'>
                     PREVIEW: " . htmlspecialchars($title_val) . "
                 </div>
                 <div style='font-family:monospace; color:#ccc; line-height:1.5; font-size:0.9rem; overflow-wrap: anywhere; word-break: break-word;'>" . parse_bbcode($body_val) . "</div>
@@ -68,9 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action_post'])) {
         if ($title_val && $body_val) {
             if ($edit_id) {
-                // UPDATE (Added is_pinned)
-                $stmt = $pdo->prepare("UPDATE posts SET title=?, body=?, min_rank=?, preview_cutoff=?, is_pinned=? WHERE id=?");
-                $stmt->execute([$title_val, $body_val, $rank_val, $cutoff_val, $pinned_val, $edit_id]);
+                // UPDATE
+                $stmt = $pdo->prepare("UPDATE posts SET title=?, body=?, min_rank=?, preview_cutoff=?, is_pinned=?, pin_weight=? WHERE id=?");
+                $stmt->execute([$title_val, $body_val, $rank_val, $cutoff_val, $pinned_val, $p_weight, $edit_id]);
                 
                 // Log it (Identity Protected)
                 if(isset($_SESSION['user_id'])) {
@@ -80,9 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ->execute([$_SESSION['user_id'], $_SESSION['username'], "Edited Post #$edit_id", $log_ident]);
                 }
             } else {
-                // INSERT (Added is_pinned)
-                $stmt = $pdo->prepare("INSERT INTO posts (user_id, title, body, min_rank, preview_cutoff, is_pinned) VALUES (?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$_SESSION['user_id'], $title_val, $body_val, $rank_val, $cutoff_val, $pinned_val]);
+                // INSERT
+                $stmt = $pdo->prepare("INSERT INTO posts (user_id, title, body, min_rank, preview_cutoff, is_pinned, pin_weight) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$_SESSION['user_id'], $title_val, $body_val, $rank_val, $cutoff_val, $pinned_val, $p_weight]);
             }
             header("Location: admin_dash.php?view=posts"); exit;
         } else {
@@ -126,17 +129,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
             
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;">
                 <div class="input-group">
-                    <label>PREVIEW CUTOFF (CHARS)</label>
-                    <input type="number" name="cutoff" value="<?= $cutoff_val ?>" style="background:#0d0d0d;" placeholder="250">
-                    <small style="color:#555; font-size:0.6rem;">Characters shown on homepage before "Read More" link.</small>
+                    <label>PREVIEW LENGTH</label>
+                    <input type="number" name="cutoff" value="<?= $cutoff_val ?>" style="background:#0d0d0d; border:1px solid #333; color:#888; padding:10px;" placeholder="200">
+                    <small style="color:#555; font-size:0.6rem;">Chars visible before 'Read More'.</small>
                 </div>
-                <div class="input-group" style="display:flex; align-items:center;">
-                    <label style="cursor:pointer; display:flex; align-items:center; gap:10px; color:#e5c07b; font-weight:bold; border:1px solid #333; padding:10px; width:100%;">
-                        <input type="checkbox" name="is_pinned" value="1" <?= $pinned_val ? 'checked' : '' ?>>
-                        PIN TRANSMISSION TO TOP
-                    </label>
+                
+                <div class="input-group">
+                     <label>FEED PRIORITY</label>
+                     <div style="display:flex; align-items:stretch; border:1px solid #333; background:#0d0d0d;">
+                        <label style="cursor:pointer; display:flex; align-items:center; padding:0 15px; background:#161616; border-right:1px solid #333;">
+                            <input type="checkbox" name="is_pinned" value="1" <?= ($pinned_val??0) ? 'checked' : '' ?> style="accent-color:#e5c07b;">
+                        </label>
+                        <div style="flex-grow:1; display:flex; align-items:center; padding:0 10px; color:#555; font-size:0.75rem;">
+                            PINNED?
+                        </div>
+                        <input type="number" name="pin_weight" value="<?= $pin_weight_val ?? 0 ?>" placeholder="0" style="width:60px; background:transparent; border:none; border-left:1px solid #333; color:#e5c07b; padding:10px; text-align:center; font-weight:bold;">
+                     </div>
+                     <small style="color:#555; font-size:0.6rem;">Check box to Pin. Number = Rank (99 = Top).</small>
                 </div>
             </div>
             

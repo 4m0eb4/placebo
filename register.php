@@ -133,6 +133,16 @@ if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
                         $stmt = $pdo->prepare("INSERT INTO users (username, password_hash, pgp_public_key, pgp_fingerprint) VALUES (?, ?, ?, ?)");
                         $stmt->execute([$d['username'], $hash, $d['pgp_key'], $d['fingerprint']]);
                         
+                        // --- SYSTEM ALERT: NEW USER ---
+                        try {
+                            $s_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='alert_new_user_rank'");
+                            $req_rank = (int)($s_stmt->fetchColumn() ?: 9); 
+                            
+                            $alert_msg = "🌱 [NEW USER] [b]" . $d['username'] . "[/b] has joined the network.";
+                            $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, msg_type) VALUES (0, 'SYSTEM', ?, ?, 'system')")
+                                ->execute([$alert_msg, $req_rank]);
+                        } catch (Exception $e) {}
+
                         // SUCCESS SCREEN
                         echo "<!DOCTYPE html><html><head><title>Identity Confirmed</title><link rel='stylesheet' href='style.css'></head>
                         <body style='background:#000; display:flex; align-items:center; justify-content:center; height:100vh;'>

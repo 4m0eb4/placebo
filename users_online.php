@@ -1,6 +1,7 @@
 <?php
 session_start();
 require 'db_config.php';
+require 'bbcode.php'; // Required for username effects
 
 // Auth Check
 if (!isset($_SESSION['fully_authenticated'])) exit;
@@ -191,12 +192,36 @@ try {
         <?php endif; ?>
 
        <?php foreach($display_users as $u): ?>
-            <?php $opacity = $u['is_live'] ? '1.0' : '0.4'; ?>
+            <?php 
+                $opacity = $u['is_live'] ? '1.0' : '0.4'; 
+                
+                // ROBUST STYLE PARSER (Supports BBCode Templates)
+                $raw_s = $u['chat_color'] ?? '';
+                $raw_s = str_ireplace(['url(', 'http', 'ftp', 'expression'], '', $raw_s);
+                
+                $inner_html = htmlspecialchars($u['username']);
+                $wrapper_style = "";
+
+                // 1. Template Check ({u} or [tags])
+                if (strpos($raw_s, '{u}') !== false || (str_starts_with(trim($raw_s), '[') && str_ends_with(trim($raw_s), ']'))) {
+                    $processed = str_replace('{u}', $u['username'], $raw_s);
+                    // Fallback: Append if {u} missing but tags exist
+                    if (strpos($raw_s, '{u}') === false) $processed = $raw_s . $u['username'];
+                    $inner_html = parse_bbcode($processed);
+                } else {
+                    // 2. CSS or Hex
+                    if (strpos($raw_s, ';') !== false || strpos($raw_s, ':') !== false) {
+                        $wrapper_style = $raw_s;
+                    } else {
+                        $wrapper_style = "color: $raw_s";
+                    }
+                }
+            ?>
             <div class="row" style="opacity: <?= $opacity ?>;">
                 <div class="info-col">
                     <div>
-                    <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" class="username-link" style="color: <?= htmlspecialchars($u['chat_color']) ?>">
-                            <?= htmlspecialchars($u['username']) ?>
+                        <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" class="username-link" style="<?= $wrapper_style ?>">
+                            <?= $inner_html ?>
                         </a>
                         <?php if(!$u['is_live']): ?><span style="font-size:0.6rem; color:#444;">[IDLE]</span><?php endif; ?>
                         <span class="badge badge-<?= $u['rank'] ?>"><?= htmlspecialchars(strtoupper($rank_map[$u['rank']] ?? 'L'.$u['rank'])) ?></span>
@@ -207,18 +232,33 @@ try {
                 </div>
 
                 <div class="actions-col">
-                    <?php if($u['id'] != $my_id): ?>
+<?php if($u['id'] != $my_id): ?>
                         <a href="pm.php?to=<?= $u['id'] ?>" target="_blank" class="btn">PM</a>
                     <?php endif; ?>
 
-                    <?php if($my_rank >= 9 && $u['rank'] < 9): ?>
-                        <form action="admin_exec.php" method="POST" style="display:flex; align-items:center; gap:3px; margin:0;">
+                    <?php 
+                    // FETCH PERMS
+                    $sys_perms = [];
+                    try {
+                        $p_res = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'")->fetchColumn();
+                        $sys_perms = json_decode($p_res, true) ?? [];
+                    } catch(Exception $e){}
+                    
+                    $req_kick = $sys_perms['perm_user_kick'] ?? 9; 
+                    $req_ban  = $sys_perms['perm_user_ban'] ?? 9; 
+                    ?>
+
+                    <?php if($my_rank >= $req_kick && $u['rank'] < $my_rank): ?>
+                         <form action="admin_exec.php" method="POST" style="display:flex; align-items:center; gap:3px; margin:0;">
                             <input type="hidden" name="target_user_id" value="<?= $u['id'] ?>">
                             <button type="submit" name="action_kick" class="btn btn-kill" title="Kick">K</button>
-                            <label style="font-size:0.5rem; color:#555; display:flex; align-items:center; margin-left:3px;">
-                                <input type="checkbox" name="confirm" required style="margin:0 2px;">?
-                            </label>
-                            <button type="submit" name="action_ban" class="btn btn-kill" title="Ban">B</button>
+                            
+                            <?php if($my_rank >= $req_ban): ?>
+                                <label style="font-size:0.5rem; color:#555; display:flex; align-items:center; margin-left:3px;">
+                                    <input type="checkbox" name="confirm" required style="margin:0 2px;">?
+                                </label>
+                                <button type="submit" name="action_ban" class="btn btn-kill" title="Ban">B</button>
+                            <?php endif; ?>
                         </form>
                     <?php endif; ?>
                 </div>

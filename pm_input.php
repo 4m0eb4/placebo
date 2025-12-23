@@ -14,7 +14,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 1. Send Message
     if (isset($_POST['send_msg'])) {
         $body = trim($_POST['message']);
-        if ($body) {
+        
+        // Append Quoted Text (if any)
+        if (!empty($_POST['quote_data'])) {
+            $body = $body . $_POST['quote_data'];
+        }
+
+        // VALIDATION: Only insert if body is not empty
+        if (!empty($body)) {
             // Auto PGP Wrap logic
             if (strpos($body, '-----BEGIN PGP MESSAGE-----') !== false && strpos($body, '[pgp]') === false) {
                 $body = "[pgp]\n" . $body . "\n[/pgp]";
@@ -48,12 +55,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 5. GET ACTIONS (Deletion)
-if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['msg_id'])) {
-    $mid = (int)$_GET['msg_id'];
-    // Verify ownership before deleting
-    $del = $pdo->prepare("DELETE FROM private_messages WHERE id = ? AND sender_id = ?");
-    $del->execute([$mid, $my_id]);
+// 5. GET ACTIONS
+if (isset($_GET['action'])) {
+    // A. Delete Single Message
+    if ($_GET['action'] === 'delete' && isset($_GET['msg_id'])) {
+        $mid = (int)$_GET['msg_id'];
+        $del = $pdo->prepare("DELETE FROM private_messages WHERE id = ? AND sender_id = ?");
+        $del->execute([$mid, $my_id]);
+        
+        // SIGNAL: Instant Hide
+        if ($del->rowCount() > 0) {
+            $pdo->prepare("INSERT INTO chat_signals (signal_type, signal_val) VALUES ('DELETE_PM', ?)")->execute([$mid]);
+        }
+    }
+    // B. Confirm Burn (Direct Link)
+    if ($_GET['action'] === 'confirm_burn') {
+        $pdo->prepare("DELETE FROM private_messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)")
+            ->execute([$my_id, $target_id, $target_id, $my_id]);
+            
+        // Instant Wipe Redirect (Full Page)
+        if (isset($_GET['target']) && $_GET['target'] === 'top') {
+             header("Location: pm.php?to=$target_id&wiped=1");
+             exit;
+        }
+    }
+    
     header("Location: pm_input.php?to=$target_id");
     exit;
 }
@@ -68,9 +94,10 @@ $burn_row = $chk->fetch();
 
 if ($burn_row) {
     if ($burn_row['sender_id'] == $my_id) {
-        $burn_state = 'WAITING'; // I sent the request
+        $burn_state = 'WAITING'; 
+        header("Refresh: 2"); // Auto-check status every 2s while waiting
     } else {
-        $burn_state = 'CONFIRM'; // They sent the request
+        $burn_state = 'CONFIRM'; 
     }
 }
 
@@ -84,9 +111,9 @@ if (isset($_POST['cancel_burn']) && $burn_state === 'WAITING') {
 <html>
 <head>
     <link rel="stylesheet" href="style.css">
-   <style>
+    <style>
         body { background: #111; margin: 0; padding: 8px; font-family: monospace; overflow: hidden; }
-        form { display: flex; flex-direction: column; gap: 4px; height: 100%; }
+        form { display: flex; flex-direction: column; gap: 4px; height: 100%; position: relative; }
         .input-row { display: flex; gap: 4px; }
         
         input[type="text"] {
@@ -99,20 +126,50 @@ if (isset($_POST['cancel_burn']) && $burn_state === 'WAITING') {
         
         .btn-burn { background: #1a0505; color: #666; border: 1px solid #333; }
         .btn-burn:hover { color: #e06c75; border-color: #e06c75; }
-        
         .btn-active-burn { background: #220505; color: #e06c75; border: 1px solid #e06c75; animation: pulse 2s infinite; }
-        .btn-cancel { background: #111; color: #888; border: 1px solid #444; }
+        
+        /* REPLY BAR STYLE */
+        .reply-bar {
+            background: #1a1005; 
+            color: #d19a66; 
+            border: 1px dashed #d19a66; 
+            border-bottom: none;
+            padding: 4px 8px; 
+            font-size: 0.65rem; 
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 0px;
+        }
+        .reply-bar a { color: #e06c75; text-decoration: none; font-weight: bold; cursor: pointer; }
         
         @keyframes pulse { 0% {opacity:1;} 50% {opacity:0.7;} 100% {opacity:1;} }
     </style>
 </head>
 <body>
+    <?php
+    // Capture Reply State
+    $reply_user = $_GET['reply_user'] ?? '';
+    $reply_text = $_GET['reply_text'] ?? '';
+    $is_reply = ($reply_user && $reply_text);
+    $target_id = $_GET['to'] ?? 0;
+    ?>
+
     <form method="POST" autocomplete="off">
+        
+        <?php if($is_reply): ?>
+            <input type="hidden" name="quote_data" value="<?= "\n[quote=" . htmlspecialchars($reply_user) . "]" . htmlspecialchars($reply_text) . "[/quote]" ?>">
+            
+            <div class="reply-bar">
+                <span>>> REPLYING TO: <?= htmlspecialchars($reply_user) ?></span>
+                <a href="pm_input.php?to=<?= $target_id ?>">[ CANCEL ]</a>
+            </div>
+        <?php endif; ?>
+
         <div class="input-row">
             <input type="text" name="message" autofocus placeholder="Type secure message...">
             <button type="submit" name="send_msg" class="btn-send">SEND</button>
         </div>
-<div class="toolbar" style="display:flex; align-items:center; gap:10px;">
+
+        <div class="toolbar" style="display:flex; align-items:center; gap:10px; margin-top:5px;">
             <?php if($burn_state === 'CONFIRM'): ?>
                 <span style="color:#e06c75; font-size:0.7rem; font-weight:bold; animation:pulse 1s infinite;">⚠ PARTNER REQUESTED WIPE</span>
                 <input type="hidden" name="confirm_burn" value="1">
@@ -123,7 +180,7 @@ if (isset($_POST['cancel_burn']) && $burn_state === 'WAITING') {
                 <button type="submit" name="cancel_burn" style="background:none; border:1px solid #444; color:#888; cursor:pointer; font-size:0.65rem; padding:2px 6px;">CANCEL</button>
 
             <?php else: ?>
-                <button type="submit" name="request_burn" class="btn-burn" title="Permanently delete history for both sides">INITIATE WIPE</button>
+                <button type="submit" name="request_burn" class="btn-burn" formnovalidate title="Permanently delete history for both sides">INITIATE WIPE</button>
             <?php endif; ?>
         </div>
     </form>
