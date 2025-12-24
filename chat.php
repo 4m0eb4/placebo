@@ -155,32 +155,40 @@ try {
             </div>
         </div>
     </div>
-
-    <div class="nav-bar" style="background: #161616; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;">
+<div class="nav-bar" style="background: #161616; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;">
         <div style="display:flex; align-items:center; gap: 20px;">
             <div>
                 <a href="index.php" class="term-logo">Placebo</a> 
                 <span style="color:#333; font-size:0.75rem; font-family:monospace; margin-left:5px;">// Chat</span>
             </div>
             <div style="font-size: 0.75rem; font-family: monospace;">
-                <?php if (!$is_guest): ?>
-                    <a href="links.php" style="color:#888; margin-right:10px; text-decoration:none;">[ LINKS ]</a>
-                    
-                    <?php 
-                    // Dynamic Data Permission Check
-                    $d_req = 5; // Default
-                    try {
-                        $stmt_d = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'gallery_min_rank'");
-                        if ($row_d = $stmt_d->fetch()) $d_req = (int)$row_d['setting_value'];
-                    } catch (Exception $e) {}
-                    
-                    if(($rank ?? 0) >= $d_req): 
-                    ?>
-                        <a href="gallery.php" target="_blank" style="color:#888; margin-right:10px; text-decoration:none;">[ DATA ]</a>
-                    <?php endif; ?>
+                <?php
+                // 1. LINKS CHECK (Dynamic Rank)
+                $l_req = 5; 
+                try {
+                    $stmt_l = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'links_min_rank'");
+                    if ($row_l = $stmt_l->fetch()) $l_req = (int)$row_l['setting_value'];
+                } catch (Exception $e) {}
 
-                    <a href="games.php" target="_blank" style="color:#888; text-decoration:none;">[ GAMES ]</a>
+                if (($rank ?? 0) >= $l_req):
+                ?>
+                    <a href="links.php" style="color:#888; margin-right:10px; text-decoration:none;">[ LINKS ]</a>
                 <?php endif; ?>
+
+                <?php 
+                // 2. DATA CHECK (Dynamic Rank)
+                $d_req = 5; 
+                try {
+                    $stmt_d = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'gallery_min_rank'");
+                    if ($row_d = $stmt_d->fetch()) $d_req = (int)$row_d['setting_value'];
+                } catch (Exception $e) {}
+                
+                if(($rank ?? 0) >= $d_req): 
+                ?>
+                    <a href="gallery.php" target="_blank" style="color:#888; margin-right:10px; text-decoration:none;">[ DATA ]</a>
+                <?php endif; ?>
+
+                <a href="games.php" target="_blank" style="color:#888; text-decoration:none;">[ GAMES ]</a>
             </div>
         </div>
         
@@ -191,7 +199,7 @@ try {
                 <?php endif; ?>
                 <a href="settings.php" style="margin-right:15px; color:#d19a66; text-decoration:none;">( <?= htmlspecialchars($username) ?> )</a>
                 <a href="logout.php">LOGOUT</a>
-<?php else: ?>
+            <?php else: ?>
                 <input type="checkbox" id="guest-modal-toggle" class="modal-toggle">
                 <div class="modal-overlay">
                     <div class="modal-box" style="width: 100%; max-width: 340px; height: 200px; border-color: var(--accent-secondary);">

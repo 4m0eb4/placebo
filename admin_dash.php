@@ -626,9 +626,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // [ADDED] Save moved settings
             $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('invite_min_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$_POST['invite_min_rank'], $_POST['invite_min_rank']]);
             $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('alert_new_user_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$_POST['alert_new_user_rank'], $_POST['alert_new_user_rank']]);
-            // [NEW] Gallery Rank
+            // [NEW] Gallery & Links Rank
             $g_rank = (int)$_POST['gallery_min_rank'];
             $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('gallery_min_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$g_rank, $g_rank]);
+
+            $l_rank = (int)$_POST['links_min_rank'];
+            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('links_min_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$l_rank, $l_rank]);
 
             $perms = [
                 'perm_chat_delete' => (int)$_POST['p_chat_del'],
@@ -1648,6 +1651,10 @@ if ($tab === 'logs') {
                 <div class="input-group" style="margin:0;">
                     <label>GALLERY ACCESS RANK</label>
                     <input type="number" name="gallery_min_rank" value="<?= $settings['gallery_min_rank'] ?? 5 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label>LINKS ACCESS RANK</label>
+                    <input type="number" name="links_min_rank" value="<?= $settings['links_min_rank'] ?? 5 ?>" min="0" max="10">
                 </div>
                 <div class="input-group" style="margin:0;">
                     <label>NEW USER ALERT</label>

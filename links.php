@@ -3,7 +3,15 @@ session_start();
 require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
-if (isset($_SESSION['is_guest']) && $_SESSION['is_guest'] === true) {
+// CHECK: Dynamic Rank Requirement
+$req_rank = 5; // Default
+try {
+    $r_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'links_min_rank'");
+    if ($val = $r_stmt->fetchColumn()) $req_rank = (int)$val;
+} catch (Exception $e) {}
+
+$my_rank = $_SESSION['rank'] ?? 0;
+if ($my_rank < $req_rank) {
     header("Location: chat.php"); exit;
 }
 

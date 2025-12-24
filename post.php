@@ -14,8 +14,15 @@ if (!isset($_SESSION['fully_authenticated']) && (!isset($_SESSION['is_guest']) |
 }
 
 // Guest Config: Assign Negative ID & Rank 0
-$my_id = $_SESSION['user_id'] ?? (isset($_SESSION['guest_token_id']) ? -1 * abs($_SESSION['guest_token_id']) : 0);
-$my_rank = $_SESSION['rank'] ?? (($my_id <= 0) ? 0 : 1);
+if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+    // FORCE Guest Mode: Calculate negative ID from Token
+    $my_id = -1 * abs($_SESSION['guest_token_id'] ?? 0);
+    $my_rank = 0;
+} else {
+    // Standard User Mode
+    $my_id = $_SESSION['user_id'] ?? 0;
+    $my_rank = $_SESSION['rank'] ?? 1;
+}
 
 // Inject ID into session for compatibility with existing SQL queries below
 $_SESSION['user_id'] = $my_id;
@@ -58,16 +65,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_comment'])) {
     // Check ownership
     $stmt_chk = $pdo->prepare("SELECT user_id FROM post_comments WHERE id = ?");
     $stmt_chk->execute([$del_id]);
-    $c_owner = $stmt_chk->fetchColumn();
+    $c_owner = $stmt_chk->fetchColumn(); // Returns ID (mixed) or false
     
     $is_admin = ($_SESSION['rank'] ?? 0) >= 9;
-    $is_author = ($c_owner == $_SESSION['user_id']);
+    // Fix: Check for row existence (!== false) allows ID 0 or Negative IDs to be deleted
+    $is_author = ($c_owner !== false && $c_owner == $_SESSION['user_id']);
     $is_op = ($post['user_id'] == $_SESSION['user_id'] && $op_mod_enabled);
 
-    if ($c_owner && ($is_admin || $is_author || $is_op)) {
-        $pdo->prepare("DELETE FROM post_comments WHERE id = ?")->execute([$del_id]);
-        $uid = uniqid(); // Unique ID to force refresh
-        http_response_code(303); // See Other (Correct for POST->GET)
+    if (($c_owner !== false) && ($is_admin || $is_author || $is_op)) {
+        // --- CASCADING THREAD DELETE ---
+        // 1. Find all IDs in this thread (Parent + Children + Grandchildren)
+        $ids_to_nuke = [$del_id];
+        $pointer = 0;
+        
+        // Loop through and collect children recursively
+        while($pointer < count($ids_to_nuke)) {
+            $curr = $ids_to_nuke[$pointer];
+            $stmt_kids = $pdo->prepare("SELECT id FROM post_comments WHERE parent_id = ?");
+            $stmt_kids->execute([$curr]);
+            $children = $stmt_kids->fetchAll(PDO::FETCH_COLUMN);
+            foreach($children as $child) {
+                $ids_to_nuke[] = $child;
+            }
+            $pointer++;
+        }
+
+        // 2. Delete All Collected IDs
+        $in_str = implode(',', array_fill(0, count($ids_to_nuke), '?'));
+        
+        // Delete Comments
+        $pdo->prepare("DELETE FROM post_comments WHERE id IN ($in_str)")->execute($ids_to_nuke);
+        // Delete Votes attached to them (Cleanup)
+        $pdo->prepare("DELETE FROM votes WHERE target_type='comment' AND target_id IN ($in_str)")->execute($ids_to_nuke);
+
+        $uid = uniqid(); 
+        http_response_code(303); 
         header("Location: post.php?id=$id&r=$uid#comments"); exit; 
     }
 }
@@ -214,17 +246,24 @@ while($r = $stmt_mv->fetch()) { $my_comment_votes[$r['target_id']] = $r['vote_va
         </div>
 
 <?php
-        // 2. Fetch Comments
+// 2. Fetch Comments
         $c_stmt = $pdo->prepare("
-            SELECT c.*, u.username, u.rank, u.chat_color 
+            SELECT c.*, 
+                   COALESCE(
+                       u.username, 
+                       gt.guest_username, 
+                       CASE WHEN c.user_id < 0 THEN CONCAT('Guest_', ABS(c.user_id)) ELSE 'Unknown' END
+                   ) AS username, 
+                   COALESCE(u.rank, 0) AS rank, 
+                   COALESCE(u.chat_color, gt.guest_color, '#888888') AS chat_color 
             FROM post_comments c 
-            JOIN users u ON c.user_id = u.id 
+            LEFT JOIN users u ON c.user_id = u.id 
+            LEFT JOIN guest_tokens gt ON (c.user_id < 0 AND gt.id = ABS(c.user_id))
             WHERE c.post_id = ? 
             ORDER BY c.created_at ASC
         ");
         $c_stmt->execute([$id]);
         $all_comments = $c_stmt->fetchAll();
-
 // 3. Recursive Render Function
         function render_comments($comments, $parent_id = null, $depth = 0) {
             // FIX: Added vote arrays to global scope so function can see them
@@ -264,7 +303,7 @@ while($r = $stmt_mv->fetch()) { $my_comment_votes[$r['target_id']] = $r['vote_va
                                 
                                 <div style='display:flex; align-items:center; gap:10px;'>
                                 " . ($can_delete ? "
-                                <form method='POST' onsubmit=\"return confirm('Delete signal?');\" style='margin:0;'>
+                                <form method='POST' onsubmit=\"return confirm('WARNING: Deleting this signal will also wipe all replies attached to it. Proceed?');\" style='margin:0;'>
                                     <button type='submit' name='delete_comment' value='{$c['id']}' style='background:none; border:none; color:#e06c75; font-size:0.65rem; cursor:pointer; text-decoration:none;'>[ DELETE ]</button>
                                 </form>" : "") . "
                                 <a href='post.php?id={$c['post_id']}&reply={$c['id']}#reply_box' style='font-size:0.65rem; color:#6a9c6a; text-decoration:none;'>[ REPLY ]</a>

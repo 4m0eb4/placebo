@@ -7,7 +7,8 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit; }
 $chk = $pdo->prepare("SELECT force_logout, is_banned FROM users WHERE id = ?");
 $chk->execute([$_SESSION['user_id']]);
 $u_stat = $chk->fetch();
-if ($u_stat && ($u_stat['force_logout'] || $u_stat['is_banned'])) {
+
+if (!$u_stat || $u_stat['force_logout'] || $u_stat['is_banned']) {
     header("Location: logout.php"); exit;
 }
 
