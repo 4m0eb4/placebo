@@ -82,7 +82,7 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
             $bg = ($owner>0) ? $colors[$owner] : '#1a1a1a';
             echo "<div class='h-line' style='background: $bg;'>";
             if($owner == 0 && $is_my_turn) {
-                echo "<a href='dots_action.php?id=$gid&move=h_{$r}_{$c}' target='game_hidden_frame' class='line-link'></a>";
+                echo "<a href='dots_action.php?id=$gid&move=h_{$r}_{$c}' target='game_hidden_frame' class='line-link'>&nbsp;</a>";
             }
             echo "</div>";
         }
@@ -96,7 +96,7 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
                 $bg = ($owner>0) ? $colors[$owner] : '#1a1a1a';
                 echo "<div class='v-line' style='background: $bg;'>";
                 if($owner == 0 && $is_my_turn) {
-                    echo "<a href='dots_action.php?id=$gid&move=v_{$r}_{$c}' target='game_hidden_frame' class='line-link'></a>";
+                    echo "<a href='dots_action.php?id=$gid&move=v_{$r}_{$c}' target='game_hidden_frame' class='line-link'>&nbsp;</a>";
                 }
                 echo "</div>";
                 
@@ -165,16 +165,44 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
         .h-line { flex: 1; height: 0.5vmin; background: #1a1a1a; position: relative; margin: 0 -0.2vmin; }
         .v-line { width: 0.5vmin; flex: 0 0 auto; background: #1a1a1a; position: relative; margin: -0.2vmin 0; }
         
-        /* HITBOXES */
+/* HITBOX CONTAINER (Invisible Large Click Area) */
         .line-link { 
-            width: 100%; height: 1.5vmin; 
-            display: block; opacity: 0; position: absolute; 
-            top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 50; 
+            width: 100%; height: 3.5vmin; /* Wide area for easy clicking */
+            display: block; 
+            background-color: rgba(255, 255, 255, 0.01); /* Solid but invisible */
+            position: absolute; 
+            top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            z-index: 9999;
+            cursor: crosshair;
+            border: none; outline: none; text-decoration: none;
         }
-        .v-line .line-link { width: 1.5vmin; height: 100%; }
+        /* Vertical Hitbox Dimensions */
+        .v-line .line-link { width: 3.5vmin; height: 100%; }
+
+        /* GHOST LINE (The Visual Highlight) */
+        /* This creates a fake line inside the link that matches the board line size */
+        .line-link::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: transparent;
+            transition: background 0.1s, box-shadow 0.1s;
+        }
+
+        /* Match Horizontal Visual Line Size (0.5vmin) */
+        .h-line .line-link::after { width: 100%; height: 0.5vmin; }
+
+        /* Match Vertical Visual Line Size (0.5vmin) */
+        .v-line .line-link::after { width: 0.5vmin; height: 100%; }
+
+        /* ON HOVER: Light up ONLY the ghost line, not the whole box */
+        .line-link:hover::after {
+            background: #ffffff;
+            box-shadow: 0 0 8px #ffffff; /* Neon Glow */
+        }
         
-        .line-link:hover { opacity: 0.4; background: #fff; cursor: pointer; }
-        
+        /* Disable background change on the main box */
+        .line-link:hover { background-color: rgba(255,255,255,0.01); }
         /* BOXES & TEXT */
         .box { flex: 1; display: flex; align-items: center; justify-content: center; font-weight: bold; font-family: monospace; font-size: 2vmin; }
         .p1-txt { color: #e06c75; } .p2-txt { color: #6a9c6a; }
@@ -189,22 +217,24 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
     <iframe name="game_hidden_frame" style="display:none;"></iframe>
 
     <?php
-    $last_dom_id = null; // Track previous ID
+    $last_dom_id = null;
+    $last_chk_status = '';
 
     while (true) {
         $heartbeat++;
         
-        // Check for updates
-        $chk = $pdo->prepare("SELECT last_move FROM games WHERE public_id = ?");
+        $chk = $pdo->prepare("SELECT last_move, status FROM games WHERE public_id = ?");
         $chk->execute([$gid]);
-        $current_last_move = $chk->fetchColumn();
+        $state = $chk->fetch();
+        $current_last_move = $state['last_move'] ?? '';
+        $current_status = $state['status'] ?? '';
 
-        // Render if new move OR first run
-        if ($current_last_move !== $last_move_time || $last_move_time === null) {
+        if ($current_last_move !== $last_move_time || $current_status !== $last_chk_status || $last_move_time === null) {
             $dom_id = "frame_" . time() . "_" . rand(1000,9999);
             
             $last_move_time = render_game_frame($gid, $colors, $box_colors, $dom_id, $last_dom_id);
-            $last_dom_id = $dom_id; // Update tracker
+            $last_chk_status = $current_status;
+            $last_dom_id = $dom_id;
             
             echo " "; flush();
         }

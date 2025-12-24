@@ -6,6 +6,11 @@ require 'bbcode.php';
 // --- AUTH CHECK ---
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
+// --- RANK CHECK ---
+$g_req = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'gallery_min_rank'")->fetchColumn();
+$g_req = (int)($g_req ?: 5);
+if (($_SESSION['rank'] ?? 0) < $g_req) { die("<body style='background:#000;color:#e06c75;display:flex;justify-content:center;align-items:center;height:100vh;font-family:monospace;'>ACCESS DENIED: RANK $g_req REQUIRED</body>"); }
+
 // --- HELPERS ---
 function get_upload_score($pdo, $uid) {
     return (int)$pdo->query("SELECT SUM(vote) FROM upload_votes WHERE upload_id = $uid")->fetchColumn();
@@ -94,21 +99,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         header("Location: image_viewer.php?id=$upload_id#comments"); exit;
     }
+
+    // 5. VOTE ON COMMENT
+    if (isset($_POST['vote_comment_id'])) {
+        $cid = (int)$_POST['vote_comment_id'];
+        $val = (int)$_POST['vote_val']; // 1 or -1
+
+        if (abs($val) === 1) {
+            // Check existing vote
+            $chk = $pdo->prepare("SELECT vote FROM comment_votes WHERE comment_id = ? AND user_id = ?");
+            $chk->execute([$cid, $my_id]);
+            $exist = $chk->fetchColumn();
+            
+            if ($exist == $val) {
+                // Toggle off (remove vote)
+                $pdo->prepare("DELETE FROM comment_votes WHERE comment_id = ? AND user_id = ?")->execute([$cid, $my_id]);
+            } else {
+                // Insert or Update (switch vote)
+                $pdo->prepare("INSERT INTO comment_votes (comment_id, user_id, vote) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE vote = ?")
+                    ->execute([$cid, $my_id, $val, $val]);
+            }
+        }
+        // Redirect to anchor
+        header("Location: image_viewer.php?id=$upload_id#c-$cid"); exit;
+    }
 }
 
 // --- DATA PREP ---
 $score = get_upload_score($pdo, $upload_id);
 $my_vote = $pdo->query("SELECT vote FROM upload_votes WHERE upload_id=$upload_id AND user_id=$my_id")->fetchColumn();
 
-// Fetch Comments
+// Fetch Comments (With Scores)
 $c_stmt = $pdo->prepare("
-    SELECT c.*, u.username, u.rank, u.chat_color 
+    SELECT c.*, u.username, u.rank, u.chat_color,
+    (SELECT COALESCE(SUM(vote),0) FROM comment_votes WHERE comment_id = c.id) as score,
+    (SELECT vote FROM comment_votes WHERE comment_id = c.id AND user_id = ?) as my_vote
     FROM upload_comments c 
     JOIN users u ON c.user_id = u.id 
     WHERE c.upload_id = ? 
     ORDER BY c.created_at ASC
 ");
-$c_stmt->execute([$upload_id]);
+$c_stmt->execute([$my_id, $upload_id]);
 $all_comments = $c_stmt->fetchAll();
 ?>
 <!DOCTYPE html>
@@ -189,9 +220,22 @@ $all_comments = $c_stmt->fetchAll();
                         $pad = $depth * 30;
                         $can_del = ($c['user_id'] == $my_id || $perm_del);
                         
-                        echo "<div class='c-row' style='margin-left: {$pad}px;'>
+                        // Vote Colors
+                        $up_style = ($c['my_vote'] == 1) ? 'color:#6a9c6a;' : 'color:#555;';
+                        $down_style = ($c['my_vote'] == -1) ? 'color:#e06c75;' : 'color:#555;';
+                        $score_col = ($c['score'] > 0) ? '#6a9c6a' : (($c['score'] < 0) ? '#e06c75' : '#888');
+
+                        echo "<div class='c-row' id='c-{$c['id']}' style='margin-left: {$pad}px;'>
                                 <div class='c-head'>
-                                    <span style='color:{$c['chat_color']}; font-weight:bold;'>{$c['username']}</span>
+                                    <div style='display:flex; gap:10px; align-items:center;'>
+                                        <div style='display:flex; align-items:center; gap:2px; background:#000; padding:2px 5px; border:1px solid #222;'>
+                                            <form method='POST' style='margin:0;'><input type='hidden' name='vote_comment_id' value='{$c['id']}'><input type='hidden' name='vote_val' value='1'><button style='background:none; border:none; cursor:pointer; font-weight:bold; $up_style'>▲</button></form>
+                                            <span style='color:$score_col; font-weight:bold; min-width:15px; text-align:center;'>{$c['score']}</span>
+                                            <form method='POST' style='margin:0;'><input type='hidden' name='vote_comment_id' value='{$c['id']}'><input type='hidden' name='vote_val' value='-1'><button style='background:none; border:none; cursor:pointer; font-weight:bold; $down_style'>▼</button></form>
+                                        </div>
+
+                                        <span style='color:{$c['chat_color']}; font-weight:bold;'>{$c['username']}</span>
+                                    </div>
                                     <span>{$c['created_at']}</span>
                                 </div>
                                 <div class='c-body'>
@@ -219,7 +263,7 @@ $all_comments = $c_stmt->fetchAll();
             ?>
             <form method="POST">
                 <?php if($rep_id): ?><input type="hidden" name="parent_id" value="<?= $rep_id ?>"><?php endif; ?>
-                <input type="text" name="comment_body" placeholder="Append data to this file..." required autocomplete="off" style="width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 10px; font-family: monospace; box-sizing: border-box;">
+                <input type="text" name="comment_body" placeholder="Post a comment..." required autocomplete="off" style="width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 10px; font-family: monospace; box-sizing: border-box;">
                 <button type="submit" class="btn-primary" style="margin-top: 10px; width: auto; padding: 8px 20px;">TRANSMIT</button>
             </form>
         </div>

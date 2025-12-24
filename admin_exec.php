@@ -51,8 +51,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirmed'])) {
                 endforeach; ?>
                 
                 <input type="hidden" name="confirmed" value="1">
-                <input type="hidden" name="<?= $action_key ?>" value="1"> <?php if($action === 'BAN'): ?>
-                    <input type="text" name="ban_reason" placeholder="Reason (Optional)" style="background:#000; color:#fff; border:1px solid #333; padding:5px; width:100%; box-sizing:border-box;">
+                <input type="hidden" name="<?= $action_key ?>" value="1"> 
+                
+                <?php if($action === 'BAN'): ?>
+                    <input type="text" name="ban_reason" placeholder="Ban Reason (Visible to User)" style="background:#000; color:#fff; border:1px solid #333; padding:5px; width:100%; box-sizing:border-box;">
+                <?php endif; ?>
+
+                <?php if($action === 'MUTE'): ?>
+                    <input type="text" name="mute_reason" placeholder="Mute Reason (Visible in Chat)" style="background:#000; color:#fff; border:1px solid #333; padding:5px; width:100%; box-sizing:border-box;">
                 <?php endif; ?>
 
                 <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">

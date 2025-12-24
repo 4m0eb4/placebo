@@ -31,6 +31,12 @@ if (!isset($_SESSION['fully_authenticated'])) {
 
 // IF DEAD: Immediate Halt
 if ($kill) {
+    // Check if we have a specific reason
+    $r_txt = isset($ban_reason) ? "REASON: " . htmlspecialchars($ban_reason) : "SIGNAL LOST";
+    
+    // Auto-terminate: Meta Refresh to logout.php
+    echo "<meta http-equiv='refresh' content='2;url=logout.php'>";
+    
     echo "<style>
         html, body { background: #000 !important; margin: 0; padding: 0; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; z-index: 99999; }
         .kill-msg { 
@@ -39,10 +45,8 @@ if ($kill) {
         }
         form, input, button, .info-bar { display: none !important; }
     </style>";
-    // Target _top breaks the iframe, sending the user to logout/index cleanly
-    // Append reason if available
-    $r_txt = isset($ban_reason) ? "REASON: " . htmlspecialchars($ban_reason) : "SIGNAL LOST";
-    echo "<a href='logout.php' target='_top' class='kill-msg'>🚫 $r_txt // EXIT</a>";
+    
+    echo "<a href='logout.php' target='_top' class='kill-msg'>🚫 $r_txt // TERMINATING...</a>";
     exit;
 }
 
@@ -312,18 +316,25 @@ if (!empty($msg)) {
 </head>
 <body>
 <?php if($is_locked && $my_rank < 9): ?>
-        <div style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; background:#1a0505; color:#e06c75; font-weight:bold; font-size:0.8rem; border:1px solid #e06c75;">
-            [ CHAT LOCKED BY ADMIN ]
+        <div style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:100%; background:repeating-linear-gradient(45deg, #1a0505, #1a0505 10px, #2a0a0a 10px, #2a0a0a 20px); color:#e06c75; font-weight:bold; font-size:0.8rem; border:1px solid #e06c75; box-shadow:inset 0 0 20px #000;">
+            <div style="font-size:1.5rem;">🔒</div>
+            <div>
+                <div>SIGNAL LOCKED</div>
+                <div style="font-size:0.6rem; color:#888;">TRANSMISSION HALTED BY ADMIN</div>
+            </div>
         </div>
     <?php elseif(isset($_SESSION['is_muted'])): ?>
         <?php
-            // Fetch mute reason
             $m_stmt = $pdo->prepare("SELECT mute_reason FROM users WHERE id = ?");
             $m_stmt->execute([$_SESSION['user_id']]);
             $m_reason = $m_stmt->fetchColumn() ?: 'Behavioral Adjustment';
         ?>
-        <div style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; background:#1a0505; color:#e5c07b; font-weight:bold; font-size:0.8rem; border-top:1px dashed #e5c07b;">
-            [ SIGNAL SILENCED: <?= htmlspecialchars($m_reason) ?> ]
+        <div style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:100%; background:#1a1005; color:#e5c07b; font-weight:bold; font-size:0.8rem; border-top:1px dashed #e5c07b;">
+            <div style="font-size:1.2rem;">🔇</div>
+            <div>
+                <div>SILENCED</div>
+                <div style="font-size:0.6rem; color:#886;">REASON: <?= htmlspecialchars($m_reason) ?></div>
+            </div>
         </div>
     <?php else: ?>
         

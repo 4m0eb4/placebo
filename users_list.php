@@ -14,7 +14,7 @@ if (!isset($_SESSION['fully_authenticated']) || ($_SESSION['rank'] ?? 0) < $req_
 // Search Logic
 $search = trim($_GET['q'] ?? '');
 $params = [];
-$sql = "SELECT id, username, rank, last_active, user_status FROM users WHERE 1=1";
+$sql = "SELECT id, username, rank, last_active, user_status, chat_color FROM users WHERE 1=1";
 
 if ($search) {
     $sql .= " AND username LIKE ?";

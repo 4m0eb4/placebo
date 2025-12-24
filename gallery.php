@@ -4,13 +4,16 @@ require 'db_config.php';
 
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
-// PERMISSION CHECK (Rank 5+ Required)
-if (($_SESSION['rank'] ?? 0) < 5) {
+// PERMISSION CHECK (Dynamic Setting)
+$g_req = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'gallery_min_rank'")->fetchColumn();
+$g_req = (int)($g_req ?: 5); // Default to 5 if not set
+
+if (($_SESSION['rank'] ?? 0) < $g_req) {
     die("
     <body style='background:#0d0d0d; color:#e06c75; font-family:monospace; display:flex; align-items:center; justify-content:center; height:100vh;'>
         <div style='border:1px solid #e06c75; padding:20px; text-align:center;'>
             <h2 style='margin:0;'>ACCESS DENIED</h2>
-            <p>GALLERY CLEARANCE (RANK 5+) REQUIRED.</p>
+            <p>CLEARANCE LEVEL $g_req REQUIRED.</p>
             <a href='index.php' style='color:#fff;'>[ RETURN ]</a>
         </div>
     </body>");
@@ -130,13 +133,24 @@ $has_next = $check_next->fetchColumn();
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
-<div style="margin-top:20px; display:flex; justify-content:center; gap:20px; font-family:monospace;">
+<div style="margin-top:20px; display:flex; justify-content:center; gap:5px; font-family:monospace; flex-wrap:wrap;">
         <?php if($page > 1): ?>
-            <a href="?view=<?= $view ?>&sort=<?= $sort ?>&page=<?= $page - 1 ?>" class="tab" style="border:1px solid #333;">&lt; PREV PAGE</a>
+            <a href="?view=<?= $view ?>&sort=<?= $sort ?>&page=<?= $page - 1 ?>" class="tab" style="border:1px solid #333;">&lt;</a>
         <?php endif; ?>
+
+        <?php 
+        // Simple Tabbed Pagination (Current +/- 3)
+        $start = max(1, $page - 3);
+        $end = $has_next ? $page + 3 : $page; // Loose estimation since we don't have total count
+        
+        for ($i = $start; $i <= $end; $i++): 
+            $active_style = ($i === $page) ? "background:#6a9c6a; color:#000; border-color:#6a9c6a;" : "border:1px solid #333;";
+        ?>
+            <a href="?view=<?= $view ?>&sort=<?= $sort ?>&page=<?= $i ?>" class="tab" style="<?= $active_style ?>"><?= $i ?></a>
+        <?php endfor; ?>
         
         <?php if($has_next): ?>
-            <a href="?view=<?= $view ?>&sort=<?= $sort ?>&page=<?= $page + 1 ?>" class="tab" style="border:1px solid #333;">NEXT PAGE &gt;</a>
+            <a href="?view=<?= $view ?>&sort=<?= $sort ?>&page=<?= $page + 1 ?>" class="tab" style="border:1px solid #333;">&gt;</a>
         <?php endif; ?>
     </div>
 </body>

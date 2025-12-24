@@ -245,6 +245,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Slow Mode Removed for User.";
         }
 
+        // [NEW] Update Penalty Reason
+        if (isset($_POST['update_reason_btn'])) {
+            $uid = (int)$_POST['user_id'];
+            $new_r = trim($_POST['reason_text']);
+            $type = $_POST['reason_type']; // 'ban' or 'mute'
+            if ($type === 'ban') {
+                $pdo->prepare("UPDATE users SET ban_reason = ? WHERE id = ?")->execute([$new_r, $uid]);
+            } elseif ($type === 'mute') {
+                $pdo->prepare("UPDATE users SET mute_reason = ? WHERE id = ?")->execute([$new_r, $uid]);
+            }
+            $msg = "Penalty Reason Updated.";
+        }
+
         // --- STANDARD ACTIONS ---
         if (isset($_POST['delete_user'])) {
             $stmt = $pdo->prepare("DELETE FROM users WHERE id = ? AND rank < 10");
@@ -296,7 +309,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "Post Deleted.";
         }
     }
-
+// GAME ACTIONS
+    if ($tab === 'games') {
+        if (isset($_POST['prune_idle'])) {
+            // Delete games inactive for > 24 hours
+            $stmt = $pdo->query("DELETE FROM games WHERE last_move < NOW() - INTERVAL 24 HOUR AND status != 'finished'");
+            $count = $stmt->rowCount();
+            $msg = "Pruned $count Idle Games (Older than 24h).";
+        }
+        if (isset($_POST['delete_game'])) {
+            $stmt = $pdo->prepare("DELETE FROM games WHERE id = ?");
+            $stmt->execute([$_POST['game_id']]);
+            $msg = "Game ID #" . $_POST['game_id'] . " Terminated.";
+        }
+        if (isset($_POST['nuke_all_games'])) {
+             $pdo->exec("TRUNCATE TABLE games");
+             $msg = "GLOBAL RESET: All games wiped.";
+        }
+    }
     // 4. LOG ACTIONS
     if ($tab === 'logs') {
         if (isset($_POST['delete_log'])) {
@@ -596,6 +626,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // [ADDED] Save moved settings
             $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('invite_min_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$_POST['invite_min_rank'], $_POST['invite_min_rank']]);
             $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('alert_new_user_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$_POST['alert_new_user_rank'], $_POST['alert_new_user_rank']]);
+            // [NEW] Gallery Rank
+            $g_rank = (int)$_POST['gallery_min_rank'];
+            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('gallery_min_rank', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$g_rank, $g_rank]);
 
             $perms = [
                 'perm_chat_delete' => (int)$_POST['p_chat_del'],
@@ -708,7 +741,7 @@ if ($tab === 'logs') {
         <?php if($my_rank >= 10): ?>
             <a href="?view=perms" class="<?= $tab=='perms'?'active':'' ?>" style="color:#d19a66;">[ OWNER PERMS ]</a>
         <?php endif; ?>
-
+        <a href="?view=games" class="<?= $tab=='games'?'active':'' ?>" style="color:#61afef;">GAME OVERWATCH</a>
         <a href="index.php" style="margin-top: 50px; border-top: 1px solid #333;">&lt; RETURN TO SITE</a>
     </div>
 
@@ -854,13 +887,24 @@ if ($tab === 'logs') {
                         <div style="display: flex; gap: 10px;">
                             <?php if($pu['is_banned']): ?>
                                 <div style="display:flex; gap:5px; align-items:center;">
-                                    <span style="font-size:0.6rem; color:#e06c75;">R: <?= htmlspecialchars($pu['ban_reason'] ?? '-') ?></span>
+                                    <form method="POST" style="display:flex; gap:2px;">
+                                        <input type="hidden" name="user_id" value="<?= $pu['id'] ?>">
+                                        <input type="hidden" name="reason_type" value="ban">
+                                        <input type="text" name="reason_text" value="<?= htmlspecialchars($pu['ban_reason'] ?? '') ?>" placeholder="Reason..." style="width:100px; font-size:0.6rem; padding:2px; background:#111; border:1px solid #333; color:#e06c75;">
+                                        <button type="submit" name="update_reason_btn" class="badge" style="cursor:pointer; background:#111; border:1px solid #333; color:#aaa;">SAVE</button>
+                                    </form>
                                     <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unban" class="badge" style="background:#220505; color:#e06c75; border:1px solid #e06c75; cursor:pointer;">UNBAN</button></form>
                                 </div>
                             <?php endif; ?>
+
                             <?php if($pu['is_muted']): ?>
                                 <div style="display:flex; gap:5px; align-items:center;">
-                                    <span style="font-size:0.6rem; color:#e5c07b;">R: <?= htmlspecialchars($pu['mute_reason'] ?? '-') ?></span>
+                                    <form method="POST" style="display:flex; gap:2px;">
+                                        <input type="hidden" name="user_id" value="<?= $pu['id'] ?>">
+                                        <input type="hidden" name="reason_type" value="mute">
+                                        <input type="text" name="reason_text" value="<?= htmlspecialchars($pu['mute_reason'] ?? '') ?>" placeholder="Reason..." style="width:100px; font-size:0.6rem; padding:2px; background:#111; border:1px solid #333; color:#e5c07b;">
+                                        <button type="submit" name="update_reason_btn" class="badge" style="cursor:pointer; background:#111; border:1px solid #333; color:#aaa;">SAVE</button>
+                                    </form>
                                     <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unmute" class="badge" style="background:#1a1a05; color:#e5c07b; border:1px solid #e5c07b; cursor:pointer;">UNMUTE</button></form>
                                 </div>
                             <?php endif; ?>
@@ -1046,6 +1090,65 @@ if ($tab === 'logs') {
             </tbody>
         </table>
         <?php endif; ?>
+        
+<?php if($tab === 'games'): ?>
+        <div class="panel-header"><h2 class="panel-title">Active Game Sessions</h2></div>
+        <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
+
+        <div style="background:#111; border:1px solid #333; padding:15px; margin-bottom:20px; display:flex; gap:15px;">
+            <form method="POST" onsubmit="return confirm('Delete ALL games inactive for 24+ hours?');">
+                <button type="submit" name="prune_idle" class="btn-primary" style="background:#d19a66; border:none; color:#000; width:auto;">PRUNE IDLE (>24h)</button>
+            </form>
+            <form method="POST" onsubmit="return confirm('WARNING: THIS WILL DELETE EVERY GAME IN THE DATABASE.');">
+                <button type="submit" name="nuke_all_games" class="btn-primary" style="background:#e06c75; border:none; color:#000; width:auto;">NUKE ALL GAMES</button>
+            </form>
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID / Status</th>
+                    <th>Players</th>
+                    <th>Last Activity</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php 
+            $games = $pdo->query("SELECT * FROM games ORDER BY last_move DESC LIMIT 50")->fetchAll();
+            if(empty($games)) echo "<tr><td colspan='4' style='text-align:center; padding:20px; color:#555;'>No active signals.</td></tr>";
+            foreach($games as $g): 
+                $status_color = match($g['status']) {
+                    'active' => '#6a9c6a',
+                    'waiting' => '#e5c07b',
+                    'finished' => '#555',
+                    default => '#888'
+                };
+            ?>
+            <tr>
+                <td>
+                    <span style="font-family:monospace; color:#ccc;"><?= htmlspecialchars($g['public_id']) ?></span>
+                    <br>
+                    <span class="badge" style="color:<?= $status_color ?>; border-color:<?= $status_color ?>"><?= strtoupper($g['status']) ?></span>
+                </td>
+                <td>
+                    <div style="color:#e06c75;">P1: <?= htmlspecialchars($g['p1_name']) ?></div>
+                    <div style="color:#6a9c6a;">P2: <?= htmlspecialchars($g['p2_name'] ?? '---') ?></div>
+                </td>
+                <td style="color:#888; font-size:0.7rem;">
+                    <?= $g['last_move'] ?>
+                </td>
+                <td>
+                    <form method="POST" onsubmit="return confirm('Terminate this game?');">
+                        <input type="hidden" name="game_id" value="<?= $g['id'] ?>">
+                        <button type="submit" name="delete_game" class="badge" style="background:#1a0f0f; border:1px solid #e06c75; color:#e06c75; cursor:pointer;">TERMINATE</button>
+                    </form>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+<?php endif; ?>
         
 <?php if($tab === 'logs'): ?>
         <div class="panel-header">
@@ -1541,6 +1644,10 @@ if ($tab === 'logs') {
                 <div class="input-group" style="margin:0;">
                     <label>MIN INVITE RANK</label>
                     <input type="number" name="invite_min_rank" value="<?= $settings['invite_min_rank'] ?? 5 ?>" min="1" max="10">
+                </div>
+                <div class="input-group" style="margin:0;">
+                    <label>GALLERY ACCESS RANK</label>
+                    <input type="number" name="gallery_min_rank" value="<?= $settings['gallery_min_rank'] ?? 5 ?>" min="1" max="10">
                 </div>
                 <div class="input-group" style="margin:0;">
                     <label>NEW USER ALERT</label>

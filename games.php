@@ -11,7 +11,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_size'])) {
     $size = (int)$_POST['create_size'];
     if ($size < 3) $size = 3; if ($size > 6) $size = 6;
     
-    // Init Empty Board
     $state = [
         'h' => array_fill(0, $size + 1, array_fill(0, $size, 0)),
         'v' => array_fill(0, $size, array_fill(0, $size + 1, 0)),
@@ -19,7 +18,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_size'])) {
         's' => ['p1' => 0, 'p2' => 0]
     ];
     
-    // Generate Unique ID
     $uid = bin2hex(random_bytes(8));
     
     $stmt = $pdo->prepare("INSERT INTO games (public_id, p1_id, p1_name, grid_size, board_state) VALUES (?, ?, ?, ?, ?)");
@@ -30,7 +28,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_size'])) {
 // 2. JOIN GAME
 if (isset($_GET['join'])) {
     $uid = $_GET['join'];
-    $stmt = $pdo->prepare("UPDATE games SET p2_id = ?, p2_name = ?, status = 'active' WHERE public_id = ? AND p2_id IS NULL AND p1_id != ?");
+    usleep(200000); // 0.2s delay to ensure unique timestamp for stream update
+    $stmt = $pdo->prepare("UPDATE games SET p2_id = ?, p2_name = ?, status = 'active', last_move = NOW() WHERE public_id = ? AND p2_id IS NULL AND p1_id != ?");
     $stmt->execute([$my_id, $my_name, $uid, $my_id]);
     header("Location: dots.php?id=$uid"); exit;
 }
@@ -47,7 +46,7 @@ $open_games->execute([$my_id]);
 <head>
     <title>GAMES</title>
     <link rel="stylesheet" href="style.css">
-    <style>
+    <meta http-equiv="refresh" content="15"> <style>
         .g-btn { background:#111; border:1px solid #444; color:#ccc; padding:10px 15px; cursor:pointer; font-weight:bold; }
         .g-btn:hover { background:#6a9c6a; color:#000; }
     </style>

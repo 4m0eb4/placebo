@@ -14,6 +14,10 @@ require 'bbcode.php';
 
 $my_rank = $_SESSION['rank'] ?? 1;
 
+// Fetch Gallery Min Rank (Defaults to 5 if not set)
+$g_req = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'gallery_min_rank'")->fetchColumn();
+$g_req = (int)($g_req ?: 5);
+
 // 2. Fetch Posts (Pinned > Weight > Date)
 // We use a try-catch block to handle cases where DB columns might be missing
 try {
@@ -91,6 +95,9 @@ $posts = $stmt->fetchAll();
             </div>
             <div style="font-size: 0.75rem; font-family: monospace;">
                 <a href="chat.php" style="color:#888; margin-right:10px; text-decoration:none;">[ CHAT ]</a>
+                <?php if($my_rank >= $g_req): ?>
+                    <a href="gallery.php" style="color:#6a9c6a; margin-right:10px; text-decoration:none;">[ DATA ]</a>
+                <?php endif; ?>
                 <a href="links.php" style="color:#888; margin-right:10px; text-decoration:none;">[ LINKS ]</a>
                 <a href="games.php" style="color:#888; text-decoration:none;">[ GAMES ]</a>
             </div>
