@@ -2,10 +2,11 @@
 session_start();
 
 // 1. Security & Auth
-if (isset($_SESSION['is_guest']) && $_SESSION['is_guest'] === true) {
-    header("Location: chat.php"); exit;
-}
-if (!isset($_SESSION['fully_authenticated']) || $_SESSION['fully_authenticated'] !== true) {
+// [MODIFIED] Guests permitted on Index. Redirect only if neither Guest nor Auth User.
+if (
+    (!isset($_SESSION['fully_authenticated']) || $_SESSION['fully_authenticated'] !== true) && 
+    (!isset($_SESSION['is_guest']) || $_SESSION['is_guest'] !== true)
+) {
     header("Location: login.php"); exit;
 }
 

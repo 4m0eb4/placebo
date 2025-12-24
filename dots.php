@@ -1,10 +1,26 @@
 <?php
 session_start();
 require 'db_config.php';
-if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
+
+// Allow if Authenticated User OR Guest
+if (!isset($_SESSION['fully_authenticated']) && (!isset($_SESSION['is_guest']) || !$_SESSION['is_guest'])) { 
+    header("Location: login.php"); exit; 
+}
 
 $gid = $_GET['id'] ?? '';
 if (!$gid) { header("Location: games.php"); exit; }
+
+// [FIX] Fetch Status to determine if we can Join
+$stmt_check = $pdo->prepare("SELECT status, p1_id FROM games WHERE public_id = ?");
+$stmt_check->execute([$gid]);
+$g_meta = $stmt_check->fetch();
+
+$can_join = false;
+$my_id = (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) ? (-1 * abs($_SESSION['guest_token_id'] ?? 0)) : ($_SESSION['user_id'] ?? 0);
+
+if ($g_meta && $g_meta['status'] === 'waiting' && $my_id != $g_meta['p1_id']) {
+    $can_join = true;
+}
 
 $is_guest = $_SESSION['is_guest'] ?? false;
 ?>
@@ -41,6 +57,9 @@ $is_guest = $_SESSION['is_guest'] ?? false;
             </div>
         </div>
         <div class="nav-links" style="font-size: 0.75rem; font-family: monospace;">
+             <?php if($can_join): ?>
+                <a href="games.php?join=<?= htmlspecialchars($gid) ?>" style="color:#6a9c6a; margin-right: 15px; font-weight:bold;">[ JOIN MATCH ]</a>
+             <?php endif; ?>
              <a href="games.php" style="color:#e06c75;">[ EXIT GAME ]</a>
         </div>
     </div>

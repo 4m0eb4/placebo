@@ -126,3 +126,87 @@
 [04:57:55] User: 12 | Game: bd85e25255e425f6 | Move: v_2_0
 [04:57:55] Player Num: 2 | Current Turn: 2
 [04:57:55] SUCCESS: Move applied.
+[07:38:12] Action script triggered.
+[07:38:12] User: 1 | Game: c0c1e38e359984a4 | Move: h_0_1
+[07:38:12] Player Num: 1 | Current Turn: 1
+[07:38:12] SUCCESS: Move applied.
+[07:38:16] Action script triggered.
+[07:38:16] User: 12 | Game: c0c1e38e359984a4 | Move: h_1_1
+[07:38:16] Player Num: 2 | Current Turn: 2
+[07:38:16] SUCCESS: Move applied.
+[07:38:19] Action script triggered.
+[07:38:19] User: 1 | Game: c0c1e38e359984a4 | Move: v_0_1
+[07:38:19] Player Num: 1 | Current Turn: 1
+[07:38:19] SUCCESS: Move applied.
+[07:38:22] Action script triggered.
+[07:38:22] User: 12 | Game: c0c1e38e359984a4 | Move: v_0_2
+[07:38:22] Player Num: 2 | Current Turn: 2
+[07:38:22] SUCCESS: Move applied.
+[07:44:47] Action script triggered.
+[07:44:47] User: 1 | Game: bb4178649d8ac82b | Move: h_0_0
+[07:44:47] Player Num: 1 | Current Turn: 1
+[07:44:47] SUCCESS: Move applied.
+[07:44:49] Action script triggered.
+[07:44:49] User: -57 | Game: bb4178649d8ac82b | Move: h_0_1
+[07:44:49] Player Num: 2 | Current Turn: 2
+[07:44:49] SUCCESS: Move applied.
+[07:44:52] Action script triggered.
+[07:44:52] User: 1 | Game: bb4178649d8ac82b | Move: h_1_1
+[07:44:52] Player Num: 1 | Current Turn: 1
+[07:44:52] SUCCESS: Move applied.
+[07:44:55] Action script triggered.
+[07:44:55] User: -57 | Game: bb4178649d8ac82b | Move: v_0_2
+[07:44:55] Player Num: 2 | Current Turn: 2
+[07:44:55] SUCCESS: Move applied.
+[07:44:57] Action script triggered.
+[07:44:57] User: 1 | Game: bb4178649d8ac82b | Move: v_0_1
+[07:44:57] Player Num: 1 | Current Turn: 1
+[07:44:57] SUCCESS: Move applied.
+[07:45:03] Action script triggered.
+[07:45:03] User: 1 | Game: bb4178649d8ac82b | Move: v_0_0
+[07:45:03] Player Num: 1 | Current Turn: 1
+[07:45:03] SUCCESS: Move applied.
+[07:45:05] Action script triggered.
+[07:45:05] User: -57 | Game: bb4178649d8ac82b | Move: h_1_0
+[07:45:05] Player Num: 2 | Current Turn: 2
+[07:45:05] SUCCESS: Move applied.
+[07:58:43] Action script triggered.
+[07:58:43] User: 1 | Game: 274758e365cfa938 | Move: h_0_0
+[07:58:43] Player Num: 1 | Current Turn: 1
+[07:58:43] SUCCESS: Move applied.
+[07:58:47] Action script triggered.
+[07:58:47] User: -59 | Game: 274758e365cfa938 | Move: h_0_1
+[07:58:47] Player Num: 2 | Current Turn: 2
+[07:58:47] SUCCESS: Move applied.
+[07:59:04] Action script triggered.
+[07:59:04] User: 1 | Game: 274758e365cfa938 | Move: v_0_2
+[07:59:04] Player Num: 1 | Current Turn: 1
+[07:59:04] SUCCESS: Move applied.
+[07:59:09] Action script triggered.
+[07:59:09] User: -59 | Game: 274758e365cfa938 | Move: h_1_0
+[07:59:09] Player Num: 2 | Current Turn: 2
+[07:59:09] SUCCESS: Move applied.
+[07:59:12] Action script triggered.
+[07:59:12] User: 1 | Game: 274758e365cfa938 | Move: h_1_1
+[07:59:12] Player Num: 1 | Current Turn: 1
+[07:59:12] SUCCESS: Move applied.
+[07:59:16] Action script triggered.
+[07:59:16] User: -59 | Game: 274758e365cfa938 | Move: v_0_1
+[07:59:16] Player Num: 2 | Current Turn: 2
+[07:59:16] SUCCESS: Move applied.
+[07:59:20] Action script triggered.
+[07:59:20] User: -59 | Game: 274758e365cfa938 | Move: v_0_0
+[07:59:20] Player Num: 2 | Current Turn: 2
+[07:59:20] SUCCESS: Move applied.
+[07:59:23] Action script triggered.
+[07:59:23] User: -59 | Game: 274758e365cfa938 | Move: v_1_0
+[07:59:23] Player Num: 2 | Current Turn: 2
+[07:59:23] SUCCESS: Move applied.
+[07:59:29] Action script triggered.
+[07:59:29] User: 1 | Game: 274758e365cfa938 | Move: v_1_1
+[07:59:29] Player Num: 1 | Current Turn: 1
+[07:59:29] SUCCESS: Move applied.
+[07:59:31] Action script triggered.
+[07:59:31] User: -59 | Game: 274758e365cfa938 | Move: h_2_0
+[07:59:31] Player Num: 2 | Current Turn: 2
+[07:59:31] SUCCESS: Move applied.

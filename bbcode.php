@@ -182,6 +182,11 @@ function parse_bbcode($text) {
         '/\[me\](.*?)\[\/me\]/s',
         '/\[coin\](.*?)\[\/coin\]/s',
         '/\[roll\](.*?)\[\/roll\]/s',
+        '/\[game=(.*?)\]/s',
+        '/\[image=(\d+)\]/s',
+        '/\[url=(.*?)\](.*?)\[\/url\]/s',
+        '/\[game=(.*?)\]/s',
+        '/\[image=(\d+)\]/s',
 
         // FX TAGS
         '/\[spoiler\](.*?)\[\/spoiler\]/s',
@@ -231,6 +236,11 @@ function parse_bbcode($text) {
         '<span class="bb-me">➜ $1</span>',
         '<span class="bb-coin"><span style="font-size:1.2em;">🪙</span> $1</span>',
         '<span class="bb-roll"><span style="font-size:1.2em;">🎲</span> $1</span>',
+        '<a href="dots.php?id=$1" target="_blank" style="color:#e5c07b; text-decoration:none; border:1px solid #e5c07b; padding:0 4px;">[ 🎲 JOIN GAME ]</a>',
+        '<a href="image_viewer.php?id=$1" target="_blank" style="color:#56b6c2; text-decoration:none; border:1px solid #56b6c2; padding:0 4px;">[ 🖼️ VIEW DATA ]</a>',
+        '<a href="$1" target="_blank" style="color:#6a9c6a; text-decoration:underline; font-weight:bold;">$2</a>',
+        '<a href="dots.php?id=$1" target="_blank" style="color:#e5c07b; text-decoration:none; border:1px solid #e5c07b; padding:0 4px;">[ 🎲 JOIN GAME ]</a>',
+        '<a href="image_viewer.php?id=$1" target="_blank" style="color:#56b6c2; text-decoration:none; border:1px solid #56b6c2; padding:0 4px;">[ 🖼️ VIEW DATA ]</a>',
 
         // FX REPLACEMENTS
         '<span class="bb-spoiler" title="Hover to reveal">$1</span>',

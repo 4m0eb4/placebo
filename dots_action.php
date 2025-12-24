@@ -15,7 +15,13 @@ if (!isset($_SESSION['fully_authenticated'])) {
     exit;
 }
 
-$user_id = $_SESSION['user_id'];
+// Identity Check (User vs Guest)
+if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+    $user_id = -1 * abs($_SESSION['guest_token_id'] ?? 0);
+} else {
+    $user_id = $_SESSION['user_id'];
+}
+
 $gid = $_GET['id'] ?? '';
 $move_str = $_GET['move'] ?? '';
 

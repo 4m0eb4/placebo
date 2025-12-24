@@ -3,6 +3,14 @@ session_start();
 require 'db_config.php'; // Required for DB & Theme
 if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit; }
 
+// SECURITY: Dead Man Switch Check
+$chk = $pdo->prepare("SELECT force_logout, is_banned FROM users WHERE id = ?");
+$chk->execute([$_SESSION['user_id']]);
+$u_stat = $chk->fetch();
+if ($u_stat && ($u_stat['force_logout'] || $u_stat['is_banned'])) {
+    header("Location: logout.php"); exit;
+}
+
 $error = '';
 if (!isset($_SESSION['auth_token'])) {
     try {

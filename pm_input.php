@@ -122,34 +122,34 @@ if (isset($_POST['cancel_burn']) && $burn_state === 'WAITING') {
 <head>
     <link rel="stylesheet" href="style.css">
     <style>
-        body { background: #111; margin: 0; padding: 8px; font-family: monospace; overflow: hidden; }
-        form { display: flex; flex-direction: column; gap: 4px; height: 100%; position: relative; }
-        .input-row { display: flex; gap: 4px; }
+        body { background: #111; margin: 0; padding: 4px; font-family: monospace; overflow: hidden; height: 100vh; box-sizing: border-box; }
+        form { display: flex; flex-direction: column; height: 100%; width: 100%; justify-content: space-between; }
         
+        /* Compact layout */
+        .input-row { display: flex; gap: 4px; flex: 0 0 auto; margin-bottom: 4px; }
+        
+        /* Toolbar auto-pushes to bottom if space permits, but stays compact */
+        .toolbar { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+
         input[type="text"] {
             flex-grow: 1; background: #000; color: #fff; border: 1px solid #333; 
-            padding: 8px; font-family: monospace; outline: none; height: 30px;
+            padding: 5px 8px; font-family: monospace; outline: none; height: 28px; font-size: 0.75rem;
         }
-        button { height: 30px; font-size: 0.65rem; padding: 0 10px; }
-        .btn-send { background: #1a1a1a; color: #6a9c6a; border: 1px solid #333; height: 42px; padding: 0 25px; }
+        button { height: 28px; font-size: 0.65rem; padding: 0 10px; cursor: pointer; }
+        .btn-send { background: #1a1a1a; color: #6a9c6a; border: 1px solid #333; font-weight: bold; }
         .btn-send:hover { background: #6a9c6a; color: #000; }
         
-        .btn-burn { background: #1a0505; color: #666; border: 1px solid #333; }
-        .btn-burn:hover { color: #e06c75; border-color: #e06c75; }
+        .btn-burn { background: #1a0505; color: #555; border: 1px solid #222; width: 100%; }
+        .btn-burn:hover { color: #e06c75; border-color: #e06c75; background: #220505; }
         .btn-active-burn { background: #220505; color: #e06c75; border: 1px solid #e06c75; animation: pulse 2s infinite; }
         
-        /* REPLY BAR STYLE */
         .reply-bar {
-            background: #1a1005; 
-            color: #d19a66; 
-            border: 1px dashed #d19a66; 
-            border-bottom: none;
-            padding: 4px 8px; 
-            font-size: 0.65rem; 
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 0px;
+            flex: 0 0 auto;
+            background: #1a1005; color: #d19a66; border: 1px dashed #d19a66; 
+            padding: 2px 6px; font-size: 0.65rem; display: flex; justify-content: space-between; 
+            margin-bottom: 4px; white-space: nowrap; overflow: hidden;
         }
-        .reply-bar a { color: #e06c75; text-decoration: none; font-weight: bold; cursor: pointer; }
+        .reply-bar a { color: #e06c75; text-decoration: none; font-weight: bold; margin-left: 10px; }
         
         @keyframes pulse { 0% {opacity:1;} 50% {opacity:0.7;} 100% {opacity:1;} }
     </style>

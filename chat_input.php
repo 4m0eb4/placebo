@@ -40,22 +40,13 @@ if (!isset($_SESSION['fully_authenticated'])) {
 
 // IF DEAD: Immediate Halt
 if ($kill) {
-    // Check if we have a specific reason
-    $r_txt = isset($ban_reason) ? "REASON: " . htmlspecialchars($ban_reason) : "SIGNAL LOST";
-    
-    // Auto-terminate: Meta Refresh to logout.php
-    echo "<meta http-equiv='refresh' content='2;url=logout.php'>";
-    
-    echo "<style>
-        html, body { background: #000 !important; margin: 0; padding: 0; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; z-index: 99999; }
-        .kill-msg { 
-            color: #e06c75; font-family: monospace; font-weight: bold; text-decoration: none; 
-            border: 1px solid #e06c75; padding: 10px 20px; background: #1a0505; text-transform: uppercase; cursor: pointer;
-        }
-        form, input, button, .info-bar { display: none !important; }
-    </style>";
-    
-    echo "<a href='logout.php' target='_top' class='kill-msg'>🚫 $r_txt // TERMINATING...</a>";
+    // Standardized Kill Screen (Matches Stream)
+    echo "<style>html, body { background: #000 !important; overflow:hidden; display:flex; align-items:center; justify-content:center; height:100%; margin:0; } form, .info-bar, .reply-bar { display: none !important; }</style>";
+    echo "<div style='text-align:center; font-family:monospace;'>
+           <h1 style='color:#e06c75; margin:0 0 10px 0; font-size:1rem; letter-spacing:2px;'>SIGNAL LOST</h1>
+           <a href='logout.php' target='_top' style='color:#fff; border:1px solid #e06c75; padding:5px 15px; text-decoration:none; font-weight:bold; background:#1a0505; font-size:0.7rem;'>[ TERMINATE SESSION ]</a>
+          </div>";
+    echo "<meta http-equiv='refresh' content='3;url=logout.php'>"; // Failsafe
     exit;
 }
 

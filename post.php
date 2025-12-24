@@ -8,8 +8,17 @@ header("Expires: 0");
 require 'db_config.php'; // Required for Database & Theme Loading
 require 'bbcode.php';    // Required for formatting
 
-// Authenticate
-if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
+// Authenticate: Allow Guests if present, otherwise redirect
+if (!isset($_SESSION['fully_authenticated']) && (!isset($_SESSION['is_guest']) || !$_SESSION['is_guest'])) { 
+    header("Location: login.php"); exit; 
+}
+
+// Guest Config: Assign Negative ID & Rank 0
+$my_id = $_SESSION['user_id'] ?? (isset($_SESSION['guest_token_id']) ? -1 * abs($_SESSION['guest_token_id']) : 0);
+$my_rank = $_SESSION['rank'] ?? (($my_id <= 0) ? 0 : 1);
+
+// Inject ID into session for compatibility with existing SQL queries below
+$_SESSION['user_id'] = $my_id;
 
 // Fetch Post
 $id = $_GET['id'] ?? 0;
@@ -31,8 +40,7 @@ $post = $stmt->fetch();
 
 if (!$post) die("TRANSMISSION NOT FOUND.");
 
-// Check Rank Clearance
-$my_rank = $_SESSION['rank'] ?? 1;
+// Check Rank Clearance (Uses $my_rank calculated above)
 if ($post['min_rank'] > $my_rank) {
     die("ACCESS DENIED: INSUFFICIENT CLEARANCE (LEVEL {$post['min_rank']} REQUIRED).");
 }
@@ -71,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['post_comment'])) {
     
     if ($c_body) {
         $stmt = $pdo->prepare("INSERT INTO post_comments (post_id, user_id, parent_id, body) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$id, $_SESSION['user_id'], $parent, $c_body]);
+        $stmt->execute([$id, $my_id, $parent, $c_body]);
         $uid = uniqid(); 
         http_response_code(303); 
         header("Location: post.php?id=$id&r=$uid#comments"); exit;

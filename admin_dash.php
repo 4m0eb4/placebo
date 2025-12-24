@@ -233,8 +233,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($tab === 'users') {
         // --- PENALTY REMOVALS ---
         if (isset($_POST['quick_unban'])) {
-            $pdo->prepare("UPDATE users SET is_banned = 0 WHERE id = ?")->execute([$_POST['user_id']]);
-            $msg = "User Unbanned.";
+            $pdo->prepare("UPDATE users SET is_banned = 0, force_logout = 0 WHERE id = ?")->execute([$_POST['user_id']]);
+            $msg = "User Unbanned & Login Access Restored.";
         }
         if (isset($_POST['quick_unmute'])) {
             $pdo->prepare("UPDATE users SET is_muted = 0 WHERE id = ?")->execute([$_POST['user_id']]);

@@ -4,11 +4,13 @@ require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
 if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
-    die("<html><body style='background:#0d0d0d;color:#e06c75;font-family:monospace;text-align:center;padding:50px;'>ACCESS DENIED: GUESTS CANNOT PLAY.<br><a href='index.php' style='color:#fff;'>[ RETURN ]</a></body></html>");
+    // Guests get negative IDs to avoid DB collisions with registered Users
+    $my_id = -1 * abs($_SESSION['guest_token_id'] ?? 0);
+    $my_name = $_SESSION['username'] ?? ("Guest_" . substr($_SESSION['guest_token_id'] ?? '????', 0, 4));
+} else {
+    $my_id = $_SESSION['user_id'];
+    $my_name = $_SESSION['username'];
 }
-
-$my_id = $_SESSION['user_id'];
-$my_name = $_SESSION['username'];
 
 // 1. CREATE GAME
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_size'])) {
@@ -32,8 +34,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_size'])) {
 // 2. JOIN GAME
 if (isset($_GET['join'])) {
     $uid = $_GET['join'];
-    usleep(200000); // 0.2s delay to ensure unique timestamp for stream update
-    $stmt = $pdo->prepare("UPDATE games SET p2_id = ?, p2_name = ?, status = 'active', last_move = NOW() WHERE public_id = ? AND p2_id IS NULL AND p1_id != ?");
+    usleep(200000); 
+    // Fix: Allow join if P2 is NULL OR 0.
+    $stmt = $pdo->prepare("UPDATE games SET p2_id = ?, p2_name = ?, status = 'active', last_move = NOW() WHERE public_id = ? AND (p2_id IS NULL OR p2_id = 0) AND p1_id != ?");
     $stmt->execute([$my_id, $my_name, $uid, $my_id]);
     header("Location: dots.php?id=$uid"); exit;
 }

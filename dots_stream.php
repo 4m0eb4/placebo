@@ -38,7 +38,13 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
 
     $board = json_decode($game['board_state'], true);
     $grid_size = $game['grid_size'];
-    $my_id = $_SESSION['user_id'] ?? 0;
+
+    // Identity Check (User vs Guest)
+    if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+        $my_id = -1 * abs($_SESSION['guest_token_id'] ?? 0);
+    } else {
+        $my_id = $_SESSION['user_id'] ?? 0;
+    }
     
     $my_p_num = ($my_id == $game['p1_id']) ? 1 : (($my_id == $game['p2_id']) ? 2 : 0);
     $is_my_turn = ($game['current_turn'] == $my_p_num) && ($game['status'] == 'active');
@@ -67,7 +73,14 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
                 <a href='games.php' target='_top' class='btn-primary' style='padding:10px 20px; text-decoration:none; background:#222; border:1px solid #666; color:#fff;'>RETURN TO LOBBY</a>
               </div>";
     } else {
-        $status_txt = ($is_my_turn) ? ">> AWAITING YOUR INPUT <<" : ">> RECEIVING OPPONENT DATA... <<";
+        if ($my_p_num === 0) {
+            $status_txt = "[ SPECTATOR MODE // LIVE FEED ]";
+        } elseif ($game['status'] === 'waiting') {
+            // Explicitly tell the host we are waiting for a connection
+            $status_txt = ">> SIGNAL OPEN: WAITING FOR PLAYER 2 <<";
+        } else {
+            $status_txt = ($is_my_turn) ? ">> AWAITING YOUR INPUT <<" : ">> RECEIVING OPPONENT DATA... <<";
+        }
         echo "<div style='color: #666; font-size: 0.8rem; margin-bottom: 5px; font-family: monospace;'>$status_txt</div>";
     }
 

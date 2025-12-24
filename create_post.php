@@ -43,9 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title_val = trim($_POST['title']);
     $body_val = trim($_POST['body']);
     
-    // FIX: Force Rank 1 (Public) minimum.
+    // [MODIFIED] Allow Rank 0 (Guest) minimum.
     $rank_input = (int)($_POST['min_rank'] ?? 1);
-    $rank_val = ($rank_input < 1) ? 1 : $rank_input;
+    $rank_val = ($rank_input < 0) ? 0 : $rank_input;
     
     $cutoff_val = (int)($_POST['cutoff'] ?? 250);
     $pinned_val = isset($_POST['is_pinned']) ? 1 : 0;
@@ -121,7 +121,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="input-group">
                     <label>CLEARANCE LEVEL (MIN RANK)</label>
                     <select name="min_rank" style="background:#0d0d0d; width:100%; border:1px solid #333; color:#ccc; padding:12px; border-radius:4px;">
-                        <option value="1" <?= $rank_val==1?'selected':'' ?>>Rank 1 (Public)</option>
+                        <option value="0" <?= $rank_val==0?'selected':'' ?>>Rank 0 (Guest / Open)</option>
+                        <option value="1" <?= $rank_val==1?'selected':'' ?>>Rank 1 (User / Public)</option>
                         <option value="5" <?= $rank_val==5?'selected':'' ?>>Rank 5 (Privileged)</option>
                         <option value="9" <?= $rank_val==9?'selected':'' ?>>Rank 9 (Admin)</option>
                         <option value="10" <?= $rank_val==10?'selected':'' ?>>Rank 10 (Eyes Only)</option>

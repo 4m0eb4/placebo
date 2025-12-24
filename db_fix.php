@@ -1,32 +1,16 @@
 <?php
 require 'db_config.php';
 
-echo "<h3>INITIATING DATABASE PATCH // UPLOADS TABLE</h3>";
-echo "<pre style='background:#111; color:#ccc; padding:15px;'>";
+try {
+    // 1. Convert columns to SIGNED INT (allows negative numbers for Guests)
+    // 2. Ensure they allow NULL (for empty Player 2)
+    $pdo->exec("ALTER TABLE games MODIFY p1_id INT NULL");
+    $pdo->exec("ALTER TABLE games MODIFY p2_id INT NULL");
+    
+    echo "<div style='color:green; font-family:monospace;'>SUCCESS: Games table now accepts Negative Guest IDs.</div>";
+    echo "<br><a href='index.php'>Return Home</a>";
 
-$columns = [
-    'max_views' => "ALTER TABLE uploads ADD COLUMN max_views INT DEFAULT 0",
-    'max_downloads' => "ALTER TABLE uploads ADD COLUMN max_downloads INT DEFAULT 0",
-    'mime_type' => "ALTER TABLE uploads ADD COLUMN mime_type VARCHAR(100) DEFAULT 'application/octet-stream'",
-    'title' => "ALTER TABLE uploads ADD COLUMN title VARCHAR(255) DEFAULT ''"
-];
-
-foreach ($columns as $col => $sql) {
-    try {
-        // Check if column exists first to avoid fatal errors on strict SQL modes
-        $check = $pdo->query("SHOW COLUMNS FROM uploads LIKE '$col'");
-        if ($check->fetch()) {
-            echo "[SKIP] Column '$col' already exists.\n";
-        } else {
-            $pdo->exec($sql);
-            echo "[SUCCESS] Added column '$col'.\n";
-        }
-    } catch (PDOException $e) {
-        echo "[ERROR] Failed to add '$col': " . htmlspecialchars($e->getMessage()) . "\n";
-    }
+} catch (PDOException $e) {
+    echo "<div style='color:red;'>ERROR: " . htmlspecialchars($e->getMessage()) . "</div>";
 }
-
-echo "\n------------------------------------------------\n";
-echo "PATCH COMPLETE. YOU MAY NOW DELETE THIS FILE.";
-echo "</pre>";
 ?>
