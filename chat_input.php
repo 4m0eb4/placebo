@@ -9,9 +9,18 @@ if (!isset($_SESSION['fully_authenticated'])) {
 } else {
     // Check Guest Status
     if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
-        $stmt = $pdo->prepare("SELECT status FROM guest_tokens WHERE id = ?");
+        // [FIX] Fetch Status + Penalties (Mute/Slow)
+        $stmt = $pdo->prepare("SELECT status, is_muted, slow_mode_override FROM guest_tokens WHERE id = ?");
         $stmt->execute([$_SESSION['guest_token_id'] ?? 0]);
-        if ($stmt->fetchColumn() !== 'active') $kill = true;
+        $g = $stmt->fetch();
+
+        if (!$g || $g['status'] !== 'active') {
+            $kill = true;
+        } else {
+            // Apply Guest Penalties to Session
+            if (!empty($g['is_muted'])) $_SESSION['is_muted'] = true; else unset($_SESSION['is_muted']);
+            if (!empty($g['slow_mode_override']) && $g['slow_mode_override'] > 0) $_SESSION['user_slow'] = (int)$g['slow_mode_override']; else unset($_SESSION['user_slow']);
+        }
     } 
     // Check Registered Status
     else {
@@ -88,11 +97,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $actual_slow = $_SESSION['user_slow'] ?? $slow_sec;
     
     if ($actual_slow > 0 && $my_rank < 9) {
-        $l_stmt = $pdo->prepare("SELECT created_at FROM chat_messages WHERE user_id = ? ORDER BY id DESC LIMIT 1");
-        $l_stmt->execute([$_SESSION['user_id']]);
+        // [FIX] Use Username for check (Safe for Guests & Users) to track specific identity
+        $l_stmt = $pdo->prepare("SELECT created_at FROM chat_messages WHERE username = ? ORDER BY id DESC LIMIT 1");
+        $l_stmt->execute([$_SESSION['username']]);
         if ($last_time = $l_stmt->fetchColumn()) {
             $diff = time() - strtotime($last_time);
-            if ($diff < $slow_sec) {
+            if ($diff < $actual_slow) { // [FIX] Compare against specific override ($actual_slow), not global default
                 // Too fast
                  header("Location: chat_input.php?error=slow"); exit;
             }

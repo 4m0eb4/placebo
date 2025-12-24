@@ -40,7 +40,7 @@ try {
 
     // STRICTER FILTER: Only active within 15 minutes (Real-time feel)
     $stmt = $pdo->query("
-        SELECT id, username, rank, chat_color, user_status, show_online, last_active,
+        SELECT id, username, rank, chat_color, user_status, show_online, last_active, is_muted, slow_mode_override,
                (CASE WHEN last_active > (NOW() - INTERVAL 5 MINUTE) THEN 1 ELSE 0 END) as is_live
         FROM users 
         WHERE last_active > (NOW() - INTERVAL 15 MINUTE)
@@ -74,7 +74,7 @@ try {
 $active_guests = [];
 try {
     $stmt_g = $pdo->prepare("
-        SELECT id, guest_username as username, '#888888' as color_hex
+        SELECT id, guest_username as username, is_muted, slow_mode_override, '#888888' as color_hex
         FROM guest_tokens 
         WHERE last_active > (NOW() - INTERVAL 5 MINUTE)
         AND status = 'active'
@@ -223,6 +223,12 @@ try {
                         <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" class="username-link" style="<?= $wrapper_style ?>">
                             <?= $inner_html ?>
                         </a>
+                        <?php if(!empty($u['is_muted'])): ?>
+                            <span style="color:#e5c07b; font-size:0.6rem; vertical-align:middle; border:1px solid #e5c07b; padding:0 2px; margin-left:5px;">[MUTED]</span>
+                        <?php endif; ?>
+                        <?php if(!empty($u['slow_mode_override']) && $u['slow_mode_override'] > 0): ?>
+                            <span style="color:#56b6c2; font-size:0.6rem; vertical-align:middle; border:1px solid #56b6c2; padding:0 2px; margin-left:5px;">[SLOWED: <?= $u['slow_mode_override'] ?>s]</span>
+                        <?php endif; ?>
                         <?php if(!$u['is_live']): ?><span style="font-size:0.6rem; color:#444;">[IDLE]</span><?php endif; ?>
                         <span class="badge badge-<?= $u['rank'] ?>"><?= htmlspecialchars(strtoupper($rank_map[$u['rank']] ?? 'L'.$u['rank'])) ?></span>
                     </div>
@@ -232,7 +238,7 @@ try {
                 </div>
 
                 <div class="actions-col">
-                    <?php if($u['id'] != $my_id): ?>
+                    <?php if($u['id'] != $my_id && (!isset($_SESSION['is_guest']) || !$_SESSION['is_guest'])): ?>
                         <a href="pm.php?to=<?= $u['id'] ?>" target="_blank" class="btn">PM</a>
                     <?php endif; ?>
 
@@ -254,9 +260,19 @@ try {
                             <input type="hidden" name="target_name" value="<?= htmlspecialchars($u['username']) ?>">
                             <input type="hidden" name="return_to" value="users_online.php">
                             
-                            <button type="submit" name="action_kick" class="btn btn-kill" title="Kick">K</button>
-                            <button type="submit" name="action_mute" class="btn btn-kill" style="color:#e5c07b; border-color:#e5c07b;" title="Mute">M</button>
-                            <button type="submit" name="action_slow" class="btn btn-kill" style="color:#56b6c2; border-color:#56b6c2;" title="Slow">S</button>
+<button type="submit" name="action_kick" class="btn btn-kill" title="Kick">K</button>
+                            
+                            <?php if(!empty($u['is_muted'])): ?>
+                                <button type="submit" name="action_unmute" class="btn" style="color:#6a9c6a; border-color:#6a9c6a;" title="Unmute User">UM</button>
+                            <?php else: ?>
+                                <button type="submit" name="action_mute" class="btn btn-kill" style="color:#e5c07b; border-color:#e5c07b;" title="Mute User">M</button>
+                            <?php endif; ?>
+
+                            <?php if(!empty($u['slow_mode_override']) && $u['slow_mode_override'] > 0): ?>
+                                <button type="submit" name="action_unslow" class="btn" style="color:#6a9c6a; border-color:#6a9c6a;" title="Remove Slow">US</button>
+                            <?php else: ?>
+                                <button type="submit" name="action_slow" class="btn btn-kill" style="color:#56b6c2; border-color:#56b6c2;" title="Slow User">S</button>
+                            <?php endif; ?>
                             
                             <?php if($my_rank >= $req_ban): ?>
                                 <label style="font-size:0.5rem; color:#555; display:flex; align-items:center; margin-left:3px;">
@@ -283,15 +299,37 @@ try {
                 <div class="info-col">
                     <span class="username-link" style="color: <?= htmlspecialchars($g['color_hex']) ?>">
                         <?= htmlspecialchars($g['username']) ?>
+                        <?php if(!empty($g['is_muted'])): ?>
+                            <span style="color:#e5c07b; font-size:0.6rem; vertical-align:middle; border:1px solid #e5c07b; padding:0 2px; margin-left:5px;">[MUTED]</span>
+                        <?php endif; ?>
+                        <?php if(!empty($g['slow_mode_override']) && $g['slow_mode_override'] > 0): ?>
+                            <span style="color:#56b6c2; font-size:0.6rem; vertical-align:middle; border:1px solid #56b6c2; padding:0 2px; margin-left:5px;">[SLOWED: <?= $g['slow_mode_override'] ?>s]</span>
+                        <?php endif; ?>
                     </span>
                     <div class="status-line"><span class="pulse" style="background:#888; box-shadow:none;"></span> UPLINK ACTIVE</div>
                 </div>
 
                 <div class="actions-col">
                     <?php if($my_rank >= 9): ?>
-                        <form action="settings.php" method="POST" style="display:inline; margin:0;">
-                            <input type="hidden" name="revoke_id" value="<?= $g['id'] ?>">
-                            <button type="submit" class="btn btn-kill" onclick="return confirm('KILL CONNECTION?');">KILL</button>
+                         <form action="admin_exec.php" method="POST" style="display:flex; align-items:center; gap:3px; margin:0;">
+                            <input type="hidden" name="target_id" value="<?= $g['id'] ?>">
+                            <input type="hidden" name="target_name" value="<?= htmlspecialchars($g['username']) ?>">
+                            <input type="hidden" name="target_type" value="guest">
+                            <input type="hidden" name="return_to" value="users_online.php">
+                            
+                            <button type="submit" name="action_kick" class="btn btn-kill" title="Kill Connection">K</button>
+                            
+                            <?php if(!empty($g['is_muted'])): ?>
+                                <button type="submit" name="action_unmute" class="btn" style="color:#6a9c6a; border-color:#6a9c6a;" title="Unmute Guest">UM</button>
+                            <?php else: ?>
+                                <button type="submit" name="action_mute" class="btn btn-kill" style="color:#e5c07b; border-color:#e5c07b;" title="Mute Guest">M</button>
+                            <?php endif; ?>
+
+                            <?php if(!empty($g['slow_mode_override']) && $g['slow_mode_override'] > 0): ?>
+                                <button type="submit" name="action_unslow" class="btn" style="color:#6a9c6a; border-color:#6a9c6a;" title="Remove Slow">US</button>
+                            <?php else: ?>
+                                <button type="submit" name="action_slow" class="btn btn-kill" style="color:#56b6c2; border-color:#56b6c2;" title="Slow Guest">S</button>
+                            <?php endif; ?>
                         </form>
                     <?php endif; ?>
                 </div>

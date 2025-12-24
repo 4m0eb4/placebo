@@ -78,6 +78,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed'])) {
     
     $tid = (int)($_POST['target_id'] ?? 0);
     $return = $_POST['return_to'] ?? 'mod_panel.php';
+    $type = $_POST['target_type'] ?? 'user';
+
+    // AUTO-PATCH: Ensure Guest Table has required columns (Fixes 500 Error on Mute/Slow)
+    if ($type === 'guest') {
+        try { $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN is_muted TINYINT(1) DEFAULT 0"); } catch (Exception $e) {}
+        try { $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN slow_mode_override INT DEFAULT 0"); } catch (Exception $e) {}
+    }
     
     // LOG IDENTIFIER
     $log_ident = "SID:" . substr(session_id(), 0, 6) . "..";
@@ -85,12 +92,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed'])) {
     // --- KICK ---
     if (isset($_POST['action_kick'])) {
         if ($my_rank < $req_kick) die("ACCESS DENIED");
-        $pdo->prepare("UPDATE users SET force_logout = 1 WHERE id = ?")->execute([$tid]);
-        $act = "Kicked User #$tid";
+        if ($type === 'guest') {
+            // Kill Guest Token (Revoke)
+            $pdo->prepare("UPDATE guest_tokens SET status = 'revoked' WHERE id = ?")->execute([$tid]);
+            $act = "Kicked Guest #$tid";
+        } else {
+            $pdo->prepare("UPDATE users SET force_logout = 1 WHERE id = ?")->execute([$tid]);
+            $act = "Kicked User #$tid";
+        }
     }
 
     // --- BAN ---
-    if (isset($_POST['action_ban'])) {
+    if (isset($_POST['action_ban']) && $type !== 'guest') {
         if ($my_rank < $req_ban) die("ACCESS DENIED");
         $reason = trim($_POST['ban_reason'] ?? '');
         if(empty($reason)) $reason = "Violated System Protocols";
@@ -103,39 +116,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed'])) {
     if (isset($_POST['action_mute'])) {
         if ($my_rank < $req_kick) die("ACCESS DENIED");
         $reason = trim($_POST['mute_reason'] ?? 'Conduct');
-        $pdo->prepare("UPDATE users SET is_muted = 1, mute_reason = ? WHERE id = ?")->execute([$reason, $tid]);
-        $act = "MUTED User #$tid (Reason: $reason)";
+        
+        if ($type === 'guest') {
+            // Assumes column exists. If not, this query will fail silently in production if errors suppressed, or throw.
+            $pdo->prepare("UPDATE guest_tokens SET is_muted = 1 WHERE id = ?")->execute([$tid]);
+             $act = "MUTED Guest #$tid";
+        } else {
+            $pdo->prepare("UPDATE users SET is_muted = 1, mute_reason = ? WHERE id = ?")->execute([$reason, $tid]);
+            $act = "MUTED User #$tid (Reason: $reason)";
+        }
     }
 
     // --- UNBAN ---
-    if (isset($_POST['action_unban'])) {
+    if (isset($_POST['action_unban']) && $type !== 'guest') {
         if ($my_rank < $req_ban) die("ACCESS DENIED");
         $pdo->prepare("UPDATE users SET is_banned = 0 WHERE id = ?")->execute([$tid]);
         $act = "UNBANNED User #$tid";
     }
 
-    // --- MUTE / UNMUTE ---
-    if (isset($_POST['action_mute'])) {
-        if ($my_rank < $req_kick) die("ACCESS DENIED"); // Uses Kick perm
-        $pdo->prepare("UPDATE users SET is_muted = 1 WHERE id = ?")->execute([$tid]);
-        $act = "MUTED User #$tid";
-    }
+    // --- UNMUTE ---
     if (isset($_POST['action_unmute'])) {
         if ($my_rank < $req_kick) die("ACCESS DENIED");
-        $pdo->prepare("UPDATE users SET is_muted = 0 WHERE id = ?")->execute([$tid]);
-        $act = "UNMUTED User #$tid";
+        if ($type === 'guest') {
+            $pdo->prepare("UPDATE guest_tokens SET is_muted = 0 WHERE id = ?")->execute([$tid]);
+            $act = "UNMUTED Guest #$tid";
+        } else {
+            $pdo->prepare("UPDATE users SET is_muted = 0 WHERE id = ?")->execute([$tid]);
+            $act = "UNMUTED User #$tid";
+        }
     }
 
     // --- SLOW MODE OVERRIDE (15s Default) ---
     if (isset($_POST['action_slow'])) {
         if ($my_rank < $req_kick) die("ACCESS DENIED");
-        $pdo->prepare("UPDATE users SET slow_mode_override = 15 WHERE id = ?")->execute([$tid]);
-        $act = "SLOWED (15s) User #$tid";
+        if ($type === 'guest') {
+             $pdo->prepare("UPDATE guest_tokens SET slow_mode_override = 15 WHERE id = ?")->execute([$tid]);
+             $act = "SLOWED (15s) Guest #$tid";
+        } else {
+            $pdo->prepare("UPDATE users SET slow_mode_override = 15 WHERE id = ?")->execute([$tid]);
+            $act = "SLOWED (15s) User #$tid";
+        }
     }
     if (isset($_POST['action_unslow'])) {
         if ($my_rank < $req_kick) die("ACCESS DENIED");
-        $pdo->prepare("UPDATE users SET slow_mode_override = 0 WHERE id = ?")->execute([$tid]);
-        $act = "REMOVED SLOW on User #$tid";
+        if ($type === 'guest') {
+             $pdo->prepare("UPDATE guest_tokens SET slow_mode_override = 0 WHERE id = ?")->execute([$tid]);
+             $act = "REMOVED SLOW on Guest #$tid";
+        } else {
+            $pdo->prepare("UPDATE users SET slow_mode_override = 0 WHERE id = ?")->execute([$tid]);
+            $act = "REMOVED SLOW on User #$tid";
+        }
     }
 
     // --- WIPE ---

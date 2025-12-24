@@ -7,7 +7,21 @@ if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); e
 $is_guest = $_SESSION['is_guest'] ?? false;
 $username = $_SESSION['username'];
 $rank = $_SESSION['rank'] ?? 0;
-$is_muted = $_SESSION['is_muted'] ?? false; // Define globally
+
+// RE-CHECK MUTE STATUS (REAL-TIME)
+$is_muted = $_SESSION['is_muted'] ?? false;
+try {
+    if ($is_guest) {
+        // Requires 'is_muted' column in guest_tokens (Created in Batch 1)
+        $m_stmt = $pdo->prepare("SELECT is_muted FROM guest_tokens WHERE id = ?");
+        $m_stmt->execute([$_SESSION['guest_token_id']]);
+        if($m_stmt->fetchColumn()) $is_muted = true;
+    } else {
+        $m_stmt = $pdo->prepare("SELECT is_muted FROM users WHERE id = ?");
+        $m_stmt->execute([$_SESSION['user_id']]);
+        if($m_stmt->fetchColumn()) $is_muted = true;
+    }
+} catch (Exception $e) {}
 ?>
 <!DOCTYPE html>
 <html style="height: 100%; overflow: hidden;">
@@ -152,7 +166,16 @@ $is_muted = $_SESSION['is_muted'] ?? false; // Define globally
                 <?php if (!$is_guest): ?>
                     <a href="links.php" style="color:#888; margin-right:10px; text-decoration:none;">[ LINKS ]</a>
                     
-                    <?php if(($rank ?? 0) >= 1): ?>
+                    <?php 
+                    // Dynamic Data Permission Check
+                    $d_req = 5; // Default
+                    try {
+                        $stmt_d = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'gallery_min_rank'");
+                        if ($row_d = $stmt_d->fetch()) $d_req = (int)$row_d['setting_value'];
+                    } catch (Exception $e) {}
+                    
+                    if(($rank ?? 0) >= $d_req): 
+                    ?>
                         <a href="gallery.php" target="_blank" style="color:#888; margin-right:10px; text-decoration:none;">[ DATA ]</a>
                     <?php endif; ?>
 

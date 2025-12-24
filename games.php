@@ -3,6 +3,10 @@ session_start();
 require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
+if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+    die("<html><body style='background:#0d0d0d;color:#e06c75;font-family:monospace;text-align:center;padding:50px;'>ACCESS DENIED: GUESTS CANNOT PLAY.<br><a href='index.php' style='color:#fff;'>[ RETURN ]</a></body></html>");
+}
+
 $my_id = $_SESSION['user_id'];
 $my_name = $_SESSION['username'];
 

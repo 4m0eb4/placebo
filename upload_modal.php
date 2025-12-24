@@ -10,59 +10,70 @@ $status_color = '#e06c75'; // Red by default
 
 // 2. Handle Upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
-    $f = $_FILES['file'];
-    $title = trim($_POST['title'] ?? '');
-    
-    // Config
-    $allowed = [
-        'jpg' => 'image', 'jpeg' => 'image', 'png' => 'image', 'gif' => 'image',
-        'zip' => 'zip', '7z' => 'zip', 'rar' => 'zip',
-        'txt' => 'doc', 'pdf' => 'doc', 'md' => 'doc'
-    ];
-    $max_size = 10 * 1024 * 1024; // 10MB
-    
-    // Checks
-    $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
-    
-    if ($f['error'] !== UPLOAD_ERR_OK) {
-        $msg = "Upload Error Code: " . $f['error'];
-    } elseif ($f['size'] > $max_size) {
-        $msg = "File too large (Max 10MB).";
-    } elseif (!array_key_exists($ext, $allowed)) {
-        $msg = "Filetype not permitted.";
-    } else {
-        // Security: MIME Check
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $mime = $finfo->file($f['tmp_name']);
+    try {
+        $f = $_FILES['file'];
+        $title = trim($_POST['title'] ?? '');
         
-        // Block PHP/Executables disguised
-        $blacklist = ['application/x-php', 'text/x-php', 'application/x-dosexec'];
-        if (in_array($mime, $blacklist)) {
-            $msg = "Security Alert: Executable detected.";
+        // Config
+        $allowed = [
+            'jpg' => 'image', 'jpeg' => 'image', 'png' => 'image', 'gif' => 'image', 'webp' => 'image',
+            'zip' => 'zip', '7z' => 'zip', 'rar' => 'zip',
+            'txt' => 'doc', 'pdf' => 'doc', 'md' => 'doc'
+        ];
+        $max_size = 10 * 1024 * 1024; // 10MB
+        
+        // Checks
+        $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+        
+        if ($f['error'] !== UPLOAD_ERR_OK) {
+            $msg = "Upload Error Code: " . $f['error'];
+        } elseif ($f['size'] > $max_size) {
+            $msg = "File too large (Max 10MB).";
+        } elseif (!array_key_exists($ext, $allowed)) {
+            $msg = "Filetype not permitted.";
         } else {
-            // Process
-            $category = $allowed[$ext];
-            $hash_name = bin2hex(random_bytes(16)) . '.' . $ext;
-            $target_dir = "uploads/" . $category;
+            // Security: MIME Check (Robust)
+            $mime = 'application/octet-stream';
+            try {
+                if (class_exists('finfo')) {
+                    $finfo = new finfo(FILEINFO_MIME_TYPE);
+                    $mime = $finfo->file($f['tmp_name']);
+                } elseif (function_exists('mime_content_type')) {
+                    $mime = mime_content_type($f['tmp_name']);
+                }
+            } catch (Throwable $e) { $mime = 'application/octet-stream'; }
             
-            if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
-            
-            if (move_uploaded_file($f['tmp_name'], "$target_dir/$hash_name")) {
-                // DB Insert
-                $max_v = (int)($_POST['max_views'] ?? 0);
-                $max_d = (int)($_POST['max_dls'] ?? 0);
-                
-                $stmt = $pdo->prepare("INSERT INTO uploads (user_id, username, category, disk_filename, original_filename, file_size, mime_type, title, max_views, max_downloads) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([
-                    $_SESSION['user_id'], $_SESSION['username'], $category, 
-                    $hash_name, $f['name'], $f['size'], $mime, $title, $max_v, $max_d
-                ]);
-                $msg = "UPLOAD SUCCESSFUL // SORTED INTO: " . strtoupper($category);
-                $status_color = '#6a9c6a';
+            // Block PHP/Executables disguised
+            $blacklist = ['application/x-php', 'text/x-php', 'application/x-dosexec', 'application/x-httpd-php'];
+            if (in_array($mime, $blacklist)) {
+                $msg = "Security Alert: Executable detected.";
             } else {
-                $msg = "Disk Write Failed.";
+                // Process
+                $category = $allowed[$ext];
+                try { $hash_name = bin2hex(random_bytes(16)) . '.' . $ext; } catch(Exception $e) { $hash_name = uniqid() . '.' . $ext; }
+                $target_dir = "uploads/" . $category;
+                
+                if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
+                
+                if (move_uploaded_file($f['tmp_name'], "$target_dir/$hash_name")) {
+                    // DB Insert
+                    $max_v = (int)($_POST['max_views'] ?? 0);
+                    $max_d = (int)($_POST['max_dls'] ?? 0);
+                    
+                    $stmt = $pdo->prepare("INSERT INTO uploads (user_id, username, category, disk_filename, original_filename, file_size, mime_type, title, max_views, max_downloads) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([
+                        $_SESSION['user_id'], $_SESSION['username'], $category, 
+                        $hash_name, $f['name'], $f['size'], $mime, $title, $max_v, $max_d
+                    ]);
+                    $msg = "UPLOAD SUCCESSFUL // SORTED INTO: " . strtoupper($category);
+                    $status_color = '#6a9c6a';
+                } else {
+                    $msg = "Disk Write Failed.";
+                }
             }
         }
+    } catch (Throwable $e) {
+        $msg = "INTERNAL ERROR: " . $e->getMessage();
     }
 }
 ?>

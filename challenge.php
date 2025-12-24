@@ -5,7 +5,12 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit; }
 
 $error = '';
 if (!isset($_SESSION['auth_token'])) {
-    $_SESSION['auth_token'] = bin2hex(random_bytes(16));
+    try {
+        $_SESSION['auth_token'] = bin2hex(random_bytes(16));
+    } catch (Throwable $e) {
+        // Fallback for low entropy systems
+        $_SESSION['auth_token'] = bin2hex(openssl_random_pseudo_bytes(16));
+    }
 }
 
 // Encrypt the token
