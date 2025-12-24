@@ -20,13 +20,12 @@ try {
 $pgp_msg = $custom_msg . "\n\nCHALLENGE TOKEN: " . $_SESSION['auth_token'];
 $encrypted_block = "--- PGP ENCRYPTION FAILED ---\n" . $pgp_msg; // Fallback default
 
-// ROBUST PGP ENCRYPTION
-if (class_exists('gnupg') && isset($_SESSION['pgp_key']) && !empty($_SESSION['pgp_key'])) {
-    try {
+// ROBUST PGP ENCRYPTION (Wrapped to prevent Fatal Errors)
+try {
+    if (class_exists('gnupg') && isset($_SESSION['pgp_key']) && !empty($_SESSION['pgp_key'])) {
         // Ensure env is safe
         putenv("GNUPGHOME=/tmp");
         $gpg = new gnupg();
-        // Disable exceptions for cleaner fallback handling or keep them if you prefer logging
         $gpg->seterrormode(gnupg::ERROR_EXCEPTION);
         
         $info = $gpg->import($_SESSION['pgp_key']);
@@ -38,10 +37,11 @@ if (class_exists('gnupg') && isset($_SESSION['pgp_key']) && !empty($_SESSION['pg
                 $encrypted_block = $enc;
             }
         }
-    } catch (Exception $e) { 
-        // Silent fail to text mode, or set error
-        $error = "PGP Error: " . $e->getMessage(); 
     }
+} catch (Throwable $e) { 
+    // Catches both Exceptions and Fatal Errors (PHP 7+)
+    $error = "Encryption System Offline: " . $e->getMessage(); 
+    // Fallback is already set in $encrypted_block
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

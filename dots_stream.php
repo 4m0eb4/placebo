@@ -14,7 +14,7 @@ session_start();
 require 'db_config.php';
 session_write_close(); // Release lock
 
-$gid = (int)($_GET['id'] ?? 0);
+$gid = $_GET['id'] ?? '';
 if (!$gid) die("INVALID GAME ID");
 
 // --- COLORS ---
@@ -26,11 +26,11 @@ $last_move_time = null;
 $heartbeat = 0;
 
 // Function to render a single frame
-function render_game_frame($gid, $colors, $box_colors, $dom_id) {
+function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = null) {
     global $pdo;
     
     // Re-fetch Game Data
-    $stmt = $pdo->prepare("SELECT * FROM games WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT * FROM games WHERE public_id = ?");
     $stmt->execute([$gid]);
     $game = $stmt->fetch();
     
@@ -42,46 +42,40 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id) {
     
     $my_p_num = ($my_id == $game['p1_id']) ? 1 : (($my_id == $game['p2_id']) ? 2 : 0);
     $is_my_turn = ($game['current_turn'] == $my_p_num) && ($game['status'] == 'active');
-    // Aggressive CSS to ensure only current frame is visible and previous ones are removed from flow
-    echo "<style>
-        .game-frame { display: none !important; height: 0; overflow: hidden; } 
-        #$dom_id { display: block !important; height: auto; overflow: visible; }
-    </style>";
     
-    // Output HTML
-    echo "<div id='$dom_id' class='game-frame'>";
-    // Output CSS to show THIS frame and hide previous
-    echo "<style>.game-frame { display: none; } #$dom_id { display: block; }</style>";
-    
-    // Output HTML
+    // 1. Output NEW Frame (Force visible with ID specific style)
+    echo "<style>#$dom_id { display: flex !important; }</style>";
     echo "<div id='$dom_id' class='game-frame'>";
     
     // Header Info
-    echo "<div style='margin-bottom: 20px;'>
+    echo "<div class='hud-panel'>
             <div class='turn-ind " . ($game['current_turn']==1?'active-turn':'') . "' style='border-top: 3px solid {$colors[1]};'>
                 <div class='p1-txt'>" . htmlspecialchars($game['p1_name']) . "</div>
-                <div style='font-size: 1.5rem; font-weight: bold;'>{$board['s']['p1']}</div>
+                <div style='font-size: 1.2rem; font-weight: bold;'>{$board['s']['p1']}</div>
             </div>
             <div class='turn-ind " . ($game['current_turn']==2?'active-turn':'') . "' style='border-top: 3px solid {$colors[2]};'>
                 <div class='p2-txt'>" . htmlspecialchars($game['p2_name']) . "</div>
-                <div style='font-size: 1.5rem; font-weight: bold;'>{$board['s']['p2']}</div>
+                <div style='font-size: 1.2rem; font-weight: bold;'>{$board['s']['p2']}</div>
             </div>
           </div>";
 
     if ($game['status'] == 'finished') {
         $w_txt = ($game['winner'] == 0) ? "DRAW" : "VICTOR: " . (($game['winner'] == $game['p1_id']) ? $game['p1_name'] : $game['p2_name']);
-        echo "<h1 style='color: #e5c07b;'>GAME OVER</h1>
-              <div style='margin-bottom: 30px; font-size: 1.2rem;'>$w_txt</div>
-              <a href='games.php' target='_top' class='btn-primary'>RETURN TO LOBBY</a>";
+        echo "<div style='text-align:center; z-index:100; background:rgba(0,0,0,0.9); padding:20px; border:1px solid #e5c07b; position:absolute;'>
+                <h1 style='color: #e5c07b; margin:0 0 10px 0;'>GAME OVER</h1>
+                <div style='margin-bottom: 20px; font-size: 1rem;'>$w_txt</div>
+                <a href='games.php' target='_top' class='btn-primary' style='padding:10px 20px; text-decoration:none; background:#222; border:1px solid #666; color:#fff;'>RETURN TO LOBBY</a>
+              </div>";
     } else {
         $status_txt = ($is_my_turn) ? ">> AWAITING YOUR INPUT <<" : ">> RECEIVING OPPONENT DATA... <<";
-        echo "<div style='color: #666; font-size: 0.9rem; margin-bottom: 10px; font-family: monospace;'>$status_txt</div>";
+        echo "<div style='color: #666; font-size: 0.8rem; margin-bottom: 5px; font-family: monospace;'>$status_txt</div>";
     }
 
     // Board
     echo "<div class='game-board'>";
     for($r=0; $r <= $grid_size; $r++) {
-        echo "<div class='row'>";
+        // Horizontal Row (Dots & H-Lines)
+        echo "<div class='row-h'>";
         for($c=0; $c < $grid_size; $c++) {
             echo "<div class='dot'></div>";
             $owner = $board['h'][$r][$c];
@@ -92,10 +86,11 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id) {
             }
             echo "</div>";
         }
-        echo "<div class='dot'></div></div>";
+        echo "<div class='dot'></div></div>"; // End Horz Row
         
+        // Vertical Row (V-Lines & Boxes)
         if($r < $grid_size) {
-            echo "<div class='row'>";
+            echo "<div class='row-v'>";
             for($c=0; $c <= $grid_size; $c++) {
                 $owner = $board['v'][$r][$c];
                 $bg = ($owner>0) ? $colors[$owner] : '#1a1a1a';
@@ -113,10 +108,15 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id) {
                     echo "<div class='box $cls' style='background: $bg_box;'>$txt</div>";
                 }
             }
-            echo "</div>";
+            echo "</div>"; // End Vert Row
         }
     }
     echo "</div></div>"; // Close board/frame
+    
+    // 2. Hide PREVIOUS Frame (Clean up stack)
+    if ($prev_dom_id) {
+        echo "<style>#$prev_dom_id { display: none !important; }</style>";
+    }
     
     return $game['last_move'];
 }
@@ -127,52 +127,85 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id) {
 <html>
 <head>
     <link rel="stylesheet" href="style.css">
-<style>
-        body { text-align: center; user-select: none; padding-top: 20px; background: #0d0d0d; color: #ccc; }
-        /* Hidden by default to prevent stacking */
-        .game-frame { display: none; } 
-        .game-board { display: inline-block; background: #080808; padding: 30px; border: 1px solid #333; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        .row { display: flex; align-items: center; justify-content: center; }
-        .dot { width: 10px; height: 10px; background: #444; border-radius: 50%; z-index: 5; position: relative; flex-shrink: 0; }
+    <style>
+        html, body { 
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            background: #0d0d0d; color: #ccc; 
+            display: flex; align-items: center; justify-content: center; 
+            user-select: none;
+        }
+
+        /* FRAME LOGIC */
+        .game-frame { 
+            display: none; 
+            width: 100%; height: 100%; 
+            position: absolute; top: 0; left: 0;
+            flex-direction: column; align-items: center; justify-content: center;
+        } 
+
+        /* BOARD: Fixed Square relative to viewport (vmin) */
+        .game-board { 
+            width: 65vmin; height: 65vmin; 
+            background: #080808; 
+            padding: 1vmin; 
+            border: 1px solid #333; 
+            box-shadow: 0 0 30px rgba(0,0,0,0.7); 
+            display: flex; flex-direction: column;
+        }
+
+        /* ROW TYPES */
+        /* Horz: Items centered (Dots) */
+        .row-h { flex: 0 0 auto; display: flex; align-items: center; } 
+        /* Vert: Items stretched to fill height (Lines/Boxes) */
+        .row-v { flex: 1; display: flex; align-items: stretch; }
+
+        /* DOTS & LINES */
+        .dot { width: 1.5vmin; height: 1.5vmin; background: #444; border-radius: 50%; z-index: 5; position: relative; }
         
-        /* Thinner lines with slightly negative margins to connect to dots perfectly */
-        .h-line { width: 80px; height: 4px; background: #1a1a1a; position: relative; flex-shrink: 0; margin: 0 -2px; }
-        .v-line { width: 4px; height: 80px; background: #1a1a1a; position: relative; flex-shrink: 0; margin: -2px 0; }
+        .h-line { flex: 1; height: 0.5vmin; background: #1a1a1a; position: relative; margin: 0 -0.2vmin; }
+        .v-line { width: 0.5vmin; flex: 0 0 auto; background: #1a1a1a; position: relative; margin: -0.2vmin 0; }
         
-        /* HITBOXES: Invisible but much larger than the line (30px) for Tor Browser usability */
-        /* Streamlined Selection: Transparent hitboxes with a subtle white indicator on hover */
+        /* HITBOXES */
         .line-link { 
-            width: 100%; height: 26px; 
+            width: 100%; height: 1.5vmin; 
             display: block; opacity: 0; position: absolute; 
             top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 50; 
-            transition: opacity 0.1s;
         }
-        .v-line .line-link { width: 26px; height: 100%; }
-        /* Removed bulky grey background, using a soft white line hint instead */
-        .line-link:hover { opacity: 0.2; background: #fff; border: 1px solid #fff; cursor: pointer; box-shadow: 0 0 5px #fff; }
+        .v-line .line-link { width: 1.5vmin; height: 100%; }
         
-        .box { width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-family: monospace; font-size: 1.5rem; flex-shrink: 0; }
+        .line-link:hover { opacity: 0.4; background: #fff; cursor: pointer; }
+        
+        /* BOXES & TEXT */
+        .box { flex: 1; display: flex; align-items: center; justify-content: center; font-weight: bold; font-family: monospace; font-size: 2vmin; }
         .p1-txt { color: #e06c75; } .p2-txt { color: #6a9c6a; }
-        .turn-ind { padding: 10px 20px; border: 1px solid #333; display: inline-block; margin: 10px; width: 180px; background: #111; opacity: 0.5; transition: 0.3s; }
-        .active-turn { border-color: #fff; transform: scale(1.05); opacity: 1; }
+        
+        /* HUD */
+        .hud-panel { margin-bottom: 2vmin; display: flex; gap: 20px; }
+        .turn-ind { padding: 10px 20px; border: 1px solid #333; display: inline-block; width: 150px; text-align: center; background: #111; opacity: 0.5; transition: 0.3s; }
+        .active-turn { border-color: #fff; transform: scale(1.05); opacity: 1; box-shadow: 0 0 10px rgba(255,255,255,0.1); }
     </style>
 </head>
 <body>
     <iframe name="game_hidden_frame" style="display:none;"></iframe>
 
     <?php
+    $last_dom_id = null; // Track previous ID
+
     while (true) {
         $heartbeat++;
         
         // Check for updates
-        $chk = $pdo->prepare("SELECT last_move FROM games WHERE id = ?");
+        $chk = $pdo->prepare("SELECT last_move FROM games WHERE public_id = ?");
         $chk->execute([$gid]);
         $current_last_move = $chk->fetchColumn();
 
         // Render if new move OR first run
         if ($current_last_move !== $last_move_time || $last_move_time === null) {
             $dom_id = "frame_" . time() . "_" . rand(1000,9999);
-            $last_move_time = render_game_frame($gid, $colors, $box_colors, $dom_id);
+            
+            $last_move_time = render_game_frame($gid, $colors, $box_colors, $dom_id, $last_dom_id);
+            $last_dom_id = $dom_id; // Update tracker
+            
             echo " "; flush();
         }
 

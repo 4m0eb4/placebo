@@ -19,18 +19,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_size'])) {
         's' => ['p1' => 0, 'p2' => 0]
     ];
     
-    $stmt = $pdo->prepare("INSERT INTO games (p1_id, p1_name, grid_size, board_state) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$my_id, $my_name, $size, json_encode($state)]);
-    $new_id = $pdo->lastInsertId();
-    header("Location: dots.php?id=$new_id"); exit; // Redirect to Container
+    // Generate Unique ID
+    $uid = bin2hex(random_bytes(8));
+    
+    $stmt = $pdo->prepare("INSERT INTO games (public_id, p1_id, p1_name, grid_size, board_state) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$uid, $my_id, $my_name, $size, json_encode($state)]);
+    header("Location: dots.php?id=$uid"); exit;
 }
 
 // 2. JOIN GAME
 if (isset($_GET['join'])) {
-    $gid = (int)$_GET['join'];
-    $stmt = $pdo->prepare("UPDATE games SET p2_id = ?, p2_name = ?, status = 'active' WHERE id = ? AND p2_id IS NULL AND p1_id != ?");
-    $stmt->execute([$my_id, $my_name, $gid, $my_id]);
-    header("Location: dots.php?id=$gid"); exit; // Redirect to Container
+    $uid = $_GET['join'];
+    $stmt = $pdo->prepare("UPDATE games SET p2_id = ?, p2_name = ?, status = 'active' WHERE public_id = ? AND p2_id IS NULL AND p1_id != ?");
+    $stmt->execute([$my_id, $my_name, $uid, $my_id]);
+    header("Location: dots.php?id=$uid"); exit;
 }
 
 // FETCH LISTS
@@ -70,8 +72,8 @@ $open_games->execute([$my_id]);
     <h3 style="color:#6a9c6a;">// ACTIVE SIGNALS</h3>
     <?php foreach($my_games as $g): ?>
         <div style="background:#161616; padding:10px; border:1px solid #333; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
-            <span>ID: #<?= $g['id'] ?> | <span style="color:#e06c75;"><?= htmlspecialchars($g['p1_name']) ?></span> vs <span style="color:#6a9c6a;"><?= htmlspecialchars($g['p2_name'] ?? 'WAITING...') ?></span></span>
-            <a href="dots.php?id=<?= $g['id'] ?>" class="g-btn" style="text-decoration:none;">[ ENTER ]</a>
+            <span>ID: <span style="font-family:monospace; color:#e5c07b;"><?= htmlspecialchars($g['public_id']) ?></span> | <span style="color:#e06c75;"><?= htmlspecialchars($g['p1_name']) ?></span> vs <span style="color:#6a9c6a;"><?= htmlspecialchars($g['p2_name'] ?? 'WAITING...') ?></span></span>
+            <a href="dots.php?id=<?= $g['public_id'] ?>" class="g-btn" style="text-decoration:none;">[ ENTER ]</a>
         </div>
     <?php endforeach; ?>
 
@@ -79,7 +81,7 @@ $open_games->execute([$my_id]);
     <?php foreach($open_games as $g): ?>
         <div style="background:#0d0d0d; padding:10px; border:1px solid #222; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
             <span>SIZE: <?= $g['grid_size'] ?>x<?= $g['grid_size'] ?> | HOST: <?= htmlspecialchars($g['p1_name']) ?></span>
-            <a href="games.php?join=<?= $g['id'] ?>" class="g-btn" style="color:#6a9c6a; text-decoration:none;">[ CONNECT ]</a>
+            <a href="games.php?join=<?= $g['public_id'] ?>" class="g-btn" style="color:#6a9c6a; text-decoration:none;">[ CONNECT ]</a>
         </div>
     <?php endforeach; ?>
 </body>

@@ -49,10 +49,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
             
             if (move_uploaded_file($f['tmp_name'], "$target_dir/$hash_name")) {
                 // DB Insert
-                $stmt = $pdo->prepare("INSERT INTO uploads (user_id, username, category, disk_filename, original_filename, file_size, mime_type, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $max_v = (int)($_POST['max_views'] ?? 0);
+                $max_d = (int)($_POST['max_dls'] ?? 0);
+                
+                $stmt = $pdo->prepare("INSERT INTO uploads (user_id, username, category, disk_filename, original_filename, file_size, mime_type, title, max_views, max_downloads) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([
                     $_SESSION['user_id'], $_SESSION['username'], $category, 
-                    $hash_name, $f['name'], $f['size'], $mime, $title
+                    $hash_name, $f['name'], $f['size'], $mime, $title, $max_v, $max_d
                 ]);
                 $msg = "UPLOAD SUCCESSFUL // SORTED INTO: " . strtoupper($category);
                 $status_color = '#6a9c6a';
@@ -97,7 +100,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
             </label>
             <br>
             <input type="text" name="title" placeholder="Title / Description (Optional)" autocomplete="off">
-            <br>
+            
+            <div style="margin:10px 0; text-align:left; font-size:0.7rem; color:#666; border-top:1px solid #222; padding-top:5px;">
+                <div style="margin-bottom:5px;">AUTO-DELETE CONDITIONS (0 = KEEP FOREVER):</div>
+                <div style="display:flex; gap:10px;">
+                    <div style="flex:1;">
+                        <label>MAX VIEWS:</label>
+                        <input type="number" name="max_views" value="0" min="0" style="background:#080808; border:1px solid #333; color:#6a9c6a; width:100%;">
+                    </div>
+                    <div style="flex:1;">
+                        <label>MAX DOWNLOADS:</label>
+                        <input type="number" name="max_dls" value="0" min="0" style="background:#080808; border:1px solid #333; color:#56b6c2; width:100%;">
+                    </div>
+                </div>
+            </div>
+
             <button type="submit">INITIATE UPLOAD</button>
         </form>
         <div style="margin-top: 20px; font-size: 0.7rem; color: #555;">

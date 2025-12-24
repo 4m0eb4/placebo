@@ -19,7 +19,8 @@ if (!isset($_SESSION['viewed_posts'])) $_SESSION['viewed_posts'] = [];
 
 if (!in_array($id, $_SESSION['viewed_posts'])) {
     try { 
-        $pdo->prepare("UPDATE posts SET views = views + 1 WHERE id = ?")->execute([$id]); 
+        // Force increment using COALESCE to handle any remaining NULLs gracefully
+        $pdo->prepare("UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id = ?")->execute([$id]); 
         $_SESSION['viewed_posts'][] = $id;
     } catch(Exception $e){}
 }

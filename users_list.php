@@ -55,14 +55,34 @@ $users = $stmt->fetchAll();
             <?php if(empty($users)): ?>
                 <div style="padding:20px; text-align:center; color:#555;">No signals found.</div>
             <?php else: ?>
-                <?php foreach($users as $u): ?>
-                    <div class="u-row">
-                        <div>
-                            <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" style="color:#ccc; font-weight:bold; text-decoration:none; margin-right:10px;">
-                                <?= htmlspecialchars($u['username']) ?>
-                            </a>
-                            <span class="u-rank">LVL <?= $u['rank'] ?></span>
-                        </div>
+                <?php 
+        require_once 'bbcode.php'; // Ensure bbcode parser is available
+        foreach($users as $u): 
+            // STYLE PARSER
+            $raw_s = $u['chat_color'] ?? '';
+            $raw_s = str_ireplace(['url(', 'http', 'ftp', 'expression'], '', $raw_s); // Security strip
+            
+            $inner_html = htmlspecialchars($u['username']);
+            $wrapper_style = "color:#ccc;"; // Default
+
+            if (strpos($raw_s, '{u}') !== false || (str_starts_with(trim($raw_s), '[') && str_ends_with(trim($raw_s), ']'))) {
+                $processed = str_replace('{u}', $u['username'], $raw_s);
+                if (strpos($raw_s, '{u}') === false) $processed = $raw_s . $u['username'];
+                $inner_html = parse_bbcode($processed);
+                $wrapper_style = ""; // Style is in inner_html
+            } elseif (strpos($raw_s, ';') !== false || strpos($raw_s, ':') !== false) {
+                $wrapper_style = $raw_s;
+            } else {
+                if(!empty($raw_s)) $wrapper_style = "color: $raw_s";
+            }
+        ?>
+            <div class="u-row">
+                <div>
+                    <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" style="font-weight:bold; text-decoration:none; margin-right:10px; <?= $wrapper_style ?>">
+                        <?= $inner_html ?>
+                    </a>
+                    <span class="u-rank">LVL <?= $u['rank'] ?></span>
+                </div>
                         <div style="text-align:right;">
                              <span class="u-status"><?= htmlspecialchars($u['user_status'] ?? '') ?></span>
                              <a href="pm.php?to=<?= $u['id'] ?>" target="_blank" style="margin-left:10px; color:#6a9c6a; text-decoration:none;">[ PM ]</a>

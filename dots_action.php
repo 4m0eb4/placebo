@@ -6,7 +6,7 @@ require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated'])) exit; // Silent exit for security
 
 $user_id = $_SESSION['user_id'];
-$gid = (int)($_GET['id'] ?? 0);
+$gid = $_GET['id'] ?? ''; // Now a string (UUID)
 $move_str = $_GET['move'] ?? '';
 
 if (!$gid || !$move_str) exit;
@@ -15,8 +15,8 @@ if (!$gid || !$move_str) exit;
 $pdo->beginTransaction();
 
 try {
-    // Fetch Game with Lock
-    $stmt = $pdo->prepare("SELECT * FROM games WHERE id = ? FOR UPDATE");
+    // Fetch Game with Lock using Public ID
+    $stmt = $pdo->prepare("SELECT * FROM games WHERE public_id = ? FOR UPDATE");
     $stmt->execute([$gid]);
     $game = $stmt->fetch();
 

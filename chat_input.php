@@ -75,7 +75,9 @@ $my_rank   = $_SESSION['rank'] ?? 1;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 0. ENFORCE LOCK
     if ($is_locked && $my_rank < $lock_req) {
-        die("LOCKED"); // Simple block, UI handled below
+        // Redirect to self to show the HTML "LOCKED" banner defined below
+        header("Location: chat_input.php"); 
+        exit;
     }
 
     // 0.5 ENFORCE SLOW MODE (Global OR User Override)
@@ -314,8 +316,14 @@ if (!empty($msg)) {
             [ CHAT LOCKED BY ADMIN ]
         </div>
     <?php elseif(isset($_SESSION['is_muted'])): ?>
+        <?php
+            // Fetch mute reason
+            $m_stmt = $pdo->prepare("SELECT mute_reason FROM users WHERE id = ?");
+            $m_stmt->execute([$_SESSION['user_id']]);
+            $m_reason = $m_stmt->fetchColumn() ?: 'Behavioral Adjustment';
+        ?>
         <div style="display:flex; align-items:center; justify-content:center; width:100%; height:100%; background:#1a0505; color:#e5c07b; font-weight:bold; font-size:0.8rem; border-top:1px dashed #e5c07b;">
-            [ SIGNAL: SILENCED ]
+            [ SIGNAL SILENCED: <?= htmlspecialchars($m_reason) ?> ]
         </div>
     <?php else: ?>
         

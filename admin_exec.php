@@ -93,6 +93,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed'])) {
         $act = "BANNED User #$tid (Reason: $reason)";
     }
 
+    // --- MUTE ---
+    if (isset($_POST['action_mute'])) {
+        if ($my_rank < $req_kick) die("ACCESS DENIED");
+        $reason = trim($_POST['mute_reason'] ?? 'Conduct');
+        $pdo->prepare("UPDATE users SET is_muted = 1, mute_reason = ? WHERE id = ?")->execute([$reason, $tid]);
+        $act = "MUTED User #$tid (Reason: $reason)";
+    }
+
     // --- UNBAN ---
     if (isset($_POST['action_unban'])) {
         if ($my_rank < $req_ban) die("ACCESS DENIED");

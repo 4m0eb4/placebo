@@ -853,10 +853,16 @@ if ($tab === 'logs') {
                         </span>
                         <div style="display: flex; gap: 10px;">
                             <?php if($pu['is_banned']): ?>
-                                <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unban" class="badge" style="background:#220505; color:#e06c75; border:1px solid #e06c75; cursor:pointer;">UNBAN</button></form>
+                                <div style="display:flex; gap:5px; align-items:center;">
+                                    <span style="font-size:0.6rem; color:#e06c75;">R: <?= htmlspecialchars($pu['ban_reason'] ?? '-') ?></span>
+                                    <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unban" class="badge" style="background:#220505; color:#e06c75; border:1px solid #e06c75; cursor:pointer;">UNBAN</button></form>
+                                </div>
                             <?php endif; ?>
                             <?php if($pu['is_muted']): ?>
-                                <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unmute" class="badge" style="background:#1a1a05; color:#e5c07b; border:1px solid #e5c07b; cursor:pointer;">UNMUTE</button></form>
+                                <div style="display:flex; gap:5px; align-items:center;">
+                                    <span style="font-size:0.6rem; color:#e5c07b;">R: <?= htmlspecialchars($pu['mute_reason'] ?? '-') ?></span>
+                                    <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unmute" class="badge" style="background:#1a1a05; color:#e5c07b; border:1px solid #e5c07b; cursor:pointer;">UNMUTE</button></form>
+                                </div>
                             <?php endif; ?>
                             <?php if($pu['slow_mode_override'] > 0): ?>
                                 <form method="POST" style="margin:0;"><input type="hidden" name="user_id" value="<?= $pu['id'] ?>"><button type="submit" name="quick_unslow" class="badge" style="background:#0f1a1a; color:#56b6c2; border:1px solid #56b6c2; cursor:pointer;">RESET SPEED (<?= $pu['slow_mode_override'] ?>s)</button></form>

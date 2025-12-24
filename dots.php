@@ -3,7 +3,7 @@ session_start();
 require 'db_config.php';
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
-$gid = (int)($_GET['id'] ?? 0);
+$gid = $_GET['id'] ?? '';
 if (!$gid) { header("Location: games.php"); exit; }
 
 $is_guest = $_SESSION['is_guest'] ?? false;

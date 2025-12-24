@@ -20,7 +20,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($user && password_verify($_POST['password'], $user['password_hash'])) {
             if ($user['is_banned'] == 1) {
-                $error = "ACCESS DENIED."; usleep(500000);
+                // Fetch reason
+                $r_stmt = $pdo->prepare("SELECT ban_reason FROM users WHERE id = ?");
+                $r_stmt->execute([$user['id']]);
+                $reason = $r_stmt->fetchColumn() ?: 'Account Terminated.';
+                $error = "ACCESS DENIED: " . htmlspecialchars($reason); 
+                usleep(500000);
             } else {
                 $state = 'CHALLENGE';
                 $_SESSION['pending_user'] = $username_val;

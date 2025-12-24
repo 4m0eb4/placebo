@@ -4,23 +4,54 @@ require 'db_config.php';
 
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
+// PERMISSION CHECK (Rank 5+ Required)
+if (($_SESSION['rank'] ?? 0) < 5) {
+    die("
+    <body style='background:#0d0d0d; color:#e06c75; font-family:monospace; display:flex; align-items:center; justify-content:center; height:100vh;'>
+        <div style='border:1px solid #e06c75; padding:20px; text-align:center;'>
+            <h2 style='margin:0;'>ACCESS DENIED</h2>
+            <p>GALLERY CLEARANCE (RANK 5+) REQUIRED.</p>
+            <a href='index.php' style='color:#fff;'>[ RETURN ]</a>
+        </div>
+    </body>");
+}
+
 // Filter Logic
 $view = $_GET['view'] ?? 'image';
+$sort = $_GET['sort'] ?? 'new'; // 'new' or 'top'
+$page = (int)($_GET['page'] ?? 1);
+if ($page < 1) $page = 1;
+$per_page = 25;
+$offset = ($page - 1) * $per_page;
+
 $allowed_views = ['image', 'zip', 'doc'];
 if (!in_array($view, $allowed_views)) $view = 'image';
 
+// Sort Logic
+$order_sql = "created_at DESC";
+if ($sort === 'top') {
+    $order_sql = "score DESC, created_at DESC";
+}
+
 // Fetch Data
-$stmt = $pdo->prepare("
+$sql = "
     SELECT u.*, 
     (SELECT COALESCE(SUM(vote),0) FROM upload_votes WHERE upload_id = u.id) as score,
     (SELECT COUNT(*) FROM upload_comments WHERE upload_id = u.id) as comments
     FROM uploads u 
     WHERE category = ? 
-    ORDER BY created_at DESC 
-    LIMIT 50
-");
+    ORDER BY $order_sql 
+    LIMIT $per_page OFFSET $offset
+";
+
+$stmt = $pdo->prepare($sql);
 $stmt->execute([$view]);
 $files = $stmt->fetchAll();
+
+// Check for next page
+$check_next = $pdo->prepare("SELECT id FROM uploads WHERE category = ? LIMIT 1 OFFSET ?");
+$check_next->execute([$view, $offset + $per_page]);
+$has_next = $check_next->fetchColumn();
 ?>
 <!DOCTYPE html>
 <html>
@@ -52,15 +83,22 @@ $files = $stmt->fetchAll();
         <a href="index.php" style="float:right; color:#444; text-decoration:none;">[ EXIT ]</a>
     </div>
 
-    <div class="nav-tabs">
-        <a href="?view=image" class="tab <?= $view==='image'?'active':'' ?>">[ IMAGES ]</a>
-        <a href="?view=zip" class="tab <?= $view==='zip'?'active':'' ?>">[ ARCHIVES ]</a>
-        <a href="?view=doc" class="tab <?= $view==='doc'?'active':'' ?>">[ DOCUMENTS ]</a>
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #333; margin-bottom:20px;">
+        <div class="nav-tabs" style="border:none; margin:0;">
+            <a href="?view=image&sort=<?= $sort ?>" class="tab <?= $view==='image'?'active':'' ?>">[ IMAGES ]</a>
+            <a href="?view=zip&sort=<?= $sort ?>" class="tab <?= $view==='zip'?'active':'' ?>">[ ARCHIVES ]</a>
+            <a href="?view=doc&sort=<?= $sort ?>" class="tab <?= $view==='doc'?'active':'' ?>">[ DOCUMENTS ]</a>
+        </div>
+        <div style="padding-bottom:10px; font-size:0.7rem;">
+            SORT: 
+            <a href="?view=<?= $view ?>&sort=new" style="color:<?= $sort=='new'?'#fff':'#666' ?>; text-decoration:none; margin-right:5px;">[ NEWEST ]</a>
+            <a href="?view=<?= $view ?>&sort=top" style="color:<?= $sort=='top'?'#fff':'#666' ?>; text-decoration:none;">[ HIGHEST RATED ]</a>
+        </div>
     </div>
 
     <?php if($view === 'image'): ?>
         <div class="grid">
-<?php foreach($files as $f): ?>
+            <?php foreach($files as $f): ?>
                 <a href="image_viewer.php?id=<?= $f['id'] ?>" class="card">
                     <div class="thumb">
                         <img src="uploads/image/<?= htmlspecialchars($f['disk_filename']) ?>" loading="lazy">
@@ -92,6 +130,14 @@ $files = $stmt->fetchAll();
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
-
+<div style="margin-top:20px; display:flex; justify-content:center; gap:20px; font-family:monospace;">
+        <?php if($page > 1): ?>
+            <a href="?view=<?= $view ?>&sort=<?= $sort ?>&page=<?= $page - 1 ?>" class="tab" style="border:1px solid #333;">&lt; PREV PAGE</a>
+        <?php endif; ?>
+        
+        <?php if($has_next): ?>
+            <a href="?view=<?= $view ?>&sort=<?= $sort ?>&page=<?= $page + 1 ?>" class="tab" style="border:1px solid #333;">NEXT PAGE &gt;</a>
+        <?php endif; ?>
+    </div>
 </body>
 </html>

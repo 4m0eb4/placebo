@@ -117,105 +117,113 @@ $all_comments = $c_stmt->fetchAll();
     <title>VIEWER // <?= htmlspecialchars($upload['title'] ?: 'IMG_'.$upload_id) ?></title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .viewer-grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; height: calc(100vh - 60px); }
-        .img-container { background: #000; border: 1px solid #222; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
-        .img-container img { max-width: 100%; max-height: 100%; object-fit: contain; }
-        .meta-panel { background: #111; border-left: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; }
-        .comment-scroll { flex: 1; overflow-y: auto; padding: 15px; }
-        .comment-input { padding: 15px; border-top: 1px solid #333; background: #161616; }
+        body { background: #0d0d0d; color: #ccc; font-family: monospace; overflow-y: scroll; padding-bottom: 50px; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
         
-        .c-row { margin-bottom: 10px; border-left: 2px solid #333; padding-left: 8px; }
-        .c-head { font-size: 0.7rem; color: #666; display: flex; justify-content: space-between; margin-bottom: 2px; }
-        .c-body { font-size: 0.8rem; color: #ccc; word-break: break-word; }
+        .img-container { 
+            background: #050505; border: 1px solid #222; 
+            text-align: center; padding: 10px; margin-bottom: 20px; 
+            position: relative;
+        }
+        .img-container img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
         
-        .vote-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-family: monospace; }
-        .vote-btn { background: none; border: 1px solid #333; color: #555; cursor: pointer; padding: 2px 8px; }
-        .vote-btn.active-up { color: #6a9c6a; border-color: #6a9c6a; }
-        .vote-btn.active-down { color: #e06c75; border-color: #e06c75; }
+        .meta-bar { 
+            background: #111; border: 1px solid #333; padding: 15px; 
+            margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-start; 
+        }
+
+        /* Comments */
+        .c-row { margin-top: 15px; border-left: 2px solid #333; padding-left: 15px; }
+        .c-head { background: #111; padding: 5px; border: 1px solid #222; display: flex; justify-content: space-between; font-size: 0.75rem; }
+        .c-body { background: #0a0a0a; border: 1px solid #222; border-top: none; padding: 10px; color: #ccc; word-break: break-word; }
+        
+        .vote-btn { background: #000; border: 1px solid #333; color: #555; cursor: pointer; padding: 2px 8px; font-weight: bold; }
+        .vote-btn:hover { color: #fff; border-color: #666; }
     </style>
 </head>
-<body class="<?= $theme_cls ?? '' ?>" style="padding: 20px; overflow: hidden;">
-
-    <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <span class="term-title">IMG_VIEWER</span> 
-            <span style="color: #666; font-family: monospace;">// <?= htmlspecialchars($upload['original_filename']) ?></span>
+<body class="<?= $theme_cls ?? '' ?>">
+    <div class="container">
+        
+        <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <span class="term-title">FILE_VIEWER // <?= htmlspecialchars($upload['original_filename']) ?></span>
+            <a href="gallery.php" style="color: #666; text-decoration: none;">[ RETURN TO GRID ]</a>
         </div>
-        <a href="gallery.php" style="color: #ccc; text-decoration: none; font-size: 0.8rem;">[ RETURN TO GRID ]</a>
-    </div>
 
-    <div class="viewer-grid">
         <div class="img-container">
-            <img src="uploads/image/<?= htmlspecialchars($upload['disk_filename']) ?>">
-            
+            <a href="uploads/image/<?= htmlspecialchars($upload['disk_filename']) ?>" target="_blank">
+                <img src="uploads/image/<?= htmlspecialchars($upload['disk_filename']) ?>">
+            </a>
             <?php if($can_delete): ?>
-            <div style="position: absolute; top: 10px; right: 10px;">
-                <form method="POST" onsubmit="return confirm('PERMANENTLY DELETE THIS FILE?');">
-                    <button type="submit" name="delete_post" style="background: #220505; color: #e06c75; border: 1px solid #e06c75; padding: 5px 10px; cursor: pointer; font-weight: bold;">DELETE FILE</button>
+                <form method="POST" onsubmit="return confirm('PERMANENTLY DELETE THIS FILE?');" style="margin-top:10px;">
+                    <button type="submit" name="delete_post" style="background: #220505; color: #e06c75; border: 1px solid #e06c75; padding: 5px 10px; cursor: pointer; font-weight: bold;">[ DELETE FILE ]</button>
                 </form>
-            </div>
             <?php endif; ?>
         </div>
 
-        <div class="meta-panel">
-            <div style="padding: 15px; border-bottom: 1px solid #333;">
-                <h2 style="margin: 0 0 5px 0; font-size: 1rem; color: #e5c07b;"><?= htmlspecialchars($upload['title'] ?: 'Untitled') ?></h2>
-                <div style="font-size: 0.7rem; color: #888; margin-bottom: 10px;">
-                    UPLOADER: <span style="color: #ccc;"><?= htmlspecialchars($upload['username']) ?></span> 
-                    (<?= date('M d, H:i', strtotime($upload['created_at'])) ?>)
-                </div>
-                
-                <div class="vote-bar">
-                    <form method="POST" style="margin:0;">
-                        <input type="hidden" name="vote_val" value="1">
-                        <button class="vote-btn <?= $my_vote==1 ? 'active-up':'' ?>">▲</button>
-                    </form>
-                    <span style="font-size: 1rem; font-weight: bold; color: #fff;"><?= $score ?></span>
-                    <form method="POST" style="margin:0;">
-                        <input type="hidden" name="vote_val" value="-1">
-                        <button class="vote-btn <?= $my_vote==-1 ? 'active-down':'' ?>">▼</button>
-                    </form>
+        <div class="meta-bar">
+            <div>
+                <h1 style="color: #e5c07b; margin: 0 0 5px 0; font-size: 1.2rem;"><?= htmlspecialchars($upload['title'] ?: 'Untitled') ?></h1>
+                <div style="font-size: 0.75rem; color: #888;">
+                    UPLOADER: <span style="color: #ccc;"><?= htmlspecialchars($upload['username']) ?></span> | 
+                    SIZE: <?= round($upload['file_size']/1024) ?> KB | 
+                    DATE: <?= date('Y-m-d H:i', strtotime($upload['created_at'])) ?>
                 </div>
             </div>
-
-            <div class="comment-scroll" id="comments">
-                <?php 
-                function render_img_comments($comments, $parent_id=null, $depth=0, $perm_del=false, $my_id=0) {
-                    foreach($comments as $c) {
-                        if($c['parent_id'] == $parent_id) {
-                            $pad = $depth * 15;
-                            $can_del = ($c['user_id'] == $my_id || $perm_del);
-                            echo "<div class='c-row' style='margin-left: {$pad}px;'>
-                                    <div class='c-head'>
-                                        <span style='color:{$c['chat_color']}; font-weight:bold;'>{$c['username']}</span>
-                                        <span>
-                                            ".($can_del ? "<form method='POST' style='display:inline;' onsubmit=\"return confirm('Del?');\"><input type='hidden' name='delete_comment' value='{$c['id']}'><button style='background:none; border:none; color:#e06c75; cursor:pointer; font-size:0.6rem;'>[x]</button></form>" : "")."
-                                            <a href='image_viewer.php?id={$c['upload_id']}&reply={$c['id']}#reply_box' style='color:#6a9c6a; text-decoration:none;'>[R]</a>
-                                        </span>
-                                    </div>
-                                    <div class='c-body'>".parse_bbcode($c['body'])."</div>
-                                  </div>";
-                            render_img_comments($comments, $c['id'], $depth+1, $perm_del, $my_id);
-                        }
-                    }
-                }
-                if(empty($all_comments)) echo "<div style='color:#444; font-style:italic; text-align:center;'>No signal data.</div>";
-                else render_img_comments($all_comments, null, 0, ($my_rank >= $req_del), $my_id);
-                ?>
-            </div>
-
-            <div class="comment-input" id="reply_box">
-                <?php 
-                    $rep_id = $_GET['reply'] ?? null;
-                    if($rep_id) echo "<div style='color:#6a9c6a; font-size:0.7rem; margin-bottom:5px;'>Replying to ID #$rep_id <a href='image_viewer.php?id=$upload_id' style='color:#e06c75; text-decoration:none;'>[CANCEL]</a></div>";
-                ?>
-                <form method="POST">
-                    <?php if($rep_id): ?><input type="hidden" name="parent_id" value="<?= $rep_id ?>"><?php endif; ?>
-                    <input type="text" name="comment_body" placeholder="Add annotation..." required autocomplete="off" style="width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 8px; box-sizing: border-box;">
-                    <button type="submit" class="btn-primary" style="margin-top: 5px; width: 100%; padding: 5px;">TRANSMIT</button>
-                </form>
+            <div style="text-align: right;">
+                <div style="display:flex; align-items:center; gap:5px;">
+                    <form method="POST" style="margin:0;"><input type="hidden" name="vote_val" value="1"><button class="vote-btn" style="<?= $my_vote==1?'color:#6a9c6a;border-color:#6a9c6a':'' ?>">▲</button></form>
+                    <span style="font-size: 1.2rem; font-weight: bold; width: 30px; text-align: center;"><?= $score ?></span>
+                    <form method="POST" style="margin:0;"><input type="hidden" name="vote_val" value="-1"><button class="vote-btn" style="<?= $my_vote==-1?'color:#e06c75;border-color:#e06c75':'' ?>">▼</button></form>
+                </div>
             </div>
         </div>
+
+        <div id="comments" style="margin-bottom: 50px;">
+            <h3 style="color: #6a9c6a; border-bottom: 1px dashed #333; padding-bottom: 10px;">DATA ANNOTATIONS (<?= count($all_comments) ?>)</h3>
+
+            <?php 
+            // Defined here to be safe and clean
+            function render_img_comments_linear($comments, $parent_id=null, $depth=0, $perm_del=false, $my_id=0) {
+                foreach($comments as $c) {
+                    if($c['parent_id'] == $parent_id) {
+                        $pad = $depth * 30;
+                        $can_del = ($c['user_id'] == $my_id || $perm_del);
+                        
+                        echo "<div class='c-row' style='margin-left: {$pad}px;'>
+                                <div class='c-head'>
+                                    <span style='color:{$c['chat_color']}; font-weight:bold;'>{$c['username']}</span>
+                                    <span>{$c['created_at']}</span>
+                                </div>
+                                <div class='c-body'>
+                                    ".parse_bbcode($c['body'])."
+                                    <div style='margin-top:5px; text-align:right; font-size:0.7rem;'>
+                                        ".($can_del ? "<form method='POST' style='display:inline;' onsubmit=\"return confirm('Del?');\"><input type='hidden' name='delete_comment' value='{$c['id']}'><button style='background:none; border:none; color:#e06c75; cursor:pointer;'>[ DELETE ]</button></form>" : "")."
+                                        <a href='image_viewer.php?id={$c['upload_id']}&reply={$c['id']}#reply_box' style='color:#6a9c6a; text-decoration:none; margin-left:10px;'>[ REPLY ]</a>
+                                    </div>
+                                </div>
+                              </div>";
+                        render_img_comments_linear($comments, $c['id'], $depth+1, $perm_del, $my_id);
+                    }
+                }
+            }
+            
+            if(empty($all_comments)) echo "<div style='color:#444; padding:20px; text-align:center;'>No data found.</div>";
+            else render_img_comments_linear($all_comments, null, 0, ($my_rank >= $req_del), $my_id);
+            ?>
+        </div>
+
+        <div id="reply_box" style="background: #111; padding: 20px; border: 1px solid #333;">
+            <?php 
+                $rep_id = $_GET['reply'] ?? null;
+                if($rep_id) echo "<div style='color:#6a9c6a; font-size:0.8rem; margin-bottom:10px;'>Replying to ID #$rep_id <a href='image_viewer.php?id=$upload_id' style='color:#e06c75; text-decoration:none;'>[CANCEL]</a></div>";
+            ?>
+            <form method="POST">
+                <?php if($rep_id): ?><input type="hidden" name="parent_id" value="<?= $rep_id ?>"><?php endif; ?>
+                <input type="text" name="comment_body" placeholder="Append data to this file..." required autocomplete="off" style="width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 10px; font-family: monospace; box-sizing: border-box;">
+                <button type="submit" class="btn-primary" style="margin-top: 10px; width: auto; padding: 8px 20px;">TRANSMIT</button>
+            </form>
+        </div>
+
     </div>
 </body>
 </html>
