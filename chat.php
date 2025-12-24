@@ -7,6 +7,7 @@ if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); e
 $is_guest = $_SESSION['is_guest'] ?? false;
 $username = $_SESSION['username'];
 $rank = $_SESSION['rank'] ?? 0;
+$is_muted = $_SESSION['is_muted'] ?? false; // Define globally
 ?>
 <!DOCTYPE html>
 <html style="height: 100%; overflow: hidden;">
@@ -59,6 +60,19 @@ $rank = $_SESSION['rank'] ?? 0;
             </div>
             <div class="modal-content">
                 <iframe src="chat_invite.php" style="width:100%; height:100%; border:none;"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <input type="checkbox" id="rules-modal-toggle" class="modal-toggle">
+    <div class="modal-overlay">
+        <div class="modal-box" style="height: 550px; max-width: 600px;">
+            <div class="modal-header">
+                <span>SYSTEM PROTOCOLS</span>
+                <label for="rules-modal-toggle" class="modal-close">[ CLOSE ]</label>
+            </div>
+            <div class="modal-content">
+                <iframe src="rules.php" style="width:100%; height:100%; border:none;"></iframe>
             </div>
         </div>
     </div>
@@ -142,7 +156,7 @@ $rank = $_SESSION['rank'] ?? 0;
                         <a href="gallery.php" target="_blank" style="color:#888; margin-right:10px; text-decoration:none;">[ DATA ]</a>
                     <?php endif; ?>
 
-                    <a href="games.php" style="color:#888; text-decoration:none;">[ GAMES ]</a>
+                    <a href="games.php" target="_blank" style="color:#888; text-decoration:none;">[ GAMES ]</a>
                 <?php endif; ?>
             </div>
         </div>
@@ -180,7 +194,7 @@ $rank = $_SESSION['rank'] ?? 0;
             
             <label for="help-modal-toggle" style="
                 position: absolute; 
-                display: <?= ($is_chat_locked) ? 'none' : 'flex' ?>; 
+                display: <?= ($is_chat_locked || ($is_muted ?? false)) ? 'none' : 'flex' ?>; 
                 top: 24px; left: 5px; 
                 width: 40px; height: 28px; /* Matches Input Height */
                 background: #111; /* Matches Input BG */
@@ -206,12 +220,13 @@ $rank = $_SESSION['rank'] ?? 0;
                 
                 $mp_conf = json_decode($settings_map['permissions_config'] ?? '{}', true);
                 $is_chat_locked = ($settings_map['chat_locked'] ?? '0') === '1';
+                $is_muted = $_SESSION['is_muted'] ?? false; // Check mute status
                 
                 $req_mod = $mp_conf['perm_view_mod_panel'] ?? 9; 
                 ?>
                 <span>OPTIONS:</span>
                 
-                <?php if (!$is_chat_locked): ?>
+                <?php if (!$is_chat_locked && !$is_muted): ?>
                     <a href="help_bbcode.php" target="_blank" class="opt-btn" title="Open BBCode Manual">{bb}</a>
                 <?php endif; ?>
                 

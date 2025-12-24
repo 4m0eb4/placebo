@@ -60,8 +60,8 @@ $files = $stmt->fetchAll();
 
     <?php if($view === 'image'): ?>
         <div class="grid">
-            <?php foreach($files as $f): ?>
-                <a href="file_view.php?id=<?= $f['id'] ?>" class="card">
+<?php foreach($files as $f): ?>
+                <a href="image_viewer.php?id=<?= $f['id'] ?>" class="card">
                     <div class="thumb">
                         <img src="uploads/image/<?= htmlspecialchars($f['disk_filename']) ?>" loading="lazy">
                     </div>

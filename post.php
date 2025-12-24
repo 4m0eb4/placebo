@@ -14,8 +14,15 @@ if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); e
 // Fetch Post
 $id = $_GET['id'] ?? 0;
 
-// Update Views (Try/Catch to prevent crash if column missing)
-try { $pdo->prepare("UPDATE posts SET views = views + 1 WHERE id = ?")->execute([$id]); } catch(Exception $e){}
+// Update Views (Session Locked to prevent spam)
+if (!isset($_SESSION['viewed_posts'])) $_SESSION['viewed_posts'] = [];
+
+if (!in_array($id, $_SESSION['viewed_posts'])) {
+    try { 
+        $pdo->prepare("UPDATE posts SET views = views + 1 WHERE id = ?")->execute([$id]); 
+        $_SESSION['viewed_posts'][] = $id;
+    } catch(Exception $e){}
+}
 
 $stmt = $pdo->prepare("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?");
 $stmt->execute([$id]);

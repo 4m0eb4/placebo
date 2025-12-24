@@ -832,7 +832,7 @@ if ($tab === 'logs') {
         </form>
         <?php endif; ?>
 
-        <?php if($tab === 'users'): ?>
+<?php if($tab === 'users'): ?>
         <div class="panel-header"><h2 class="panel-title">User Registry</h2></div>
         <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
 
@@ -842,7 +842,6 @@ if ($tab === 'logs') {
             </div>
             <div style="padding: 10px;">
                 <?php 
-                // Fetch penalized users
                 $penalized = $pdo->query("SELECT id, username, is_banned, is_muted, slow_mode_override FROM users WHERE is_banned=1 OR is_muted=1 OR slow_mode_override > 0")->fetchAll();
                 if(empty($penalized)): 
                 ?>
@@ -867,6 +866,23 @@ if ($tab === 'logs') {
                 <?php endforeach; endif; ?>
             </div>
         </div>
+
+        <div style="margin-bottom: 20px; background: #111; border: 1px solid #333; padding: 15px;">
+            <form method="GET" style="display: flex; gap: 10px; align-items: center;">
+                <input type="hidden" name="view" value="users">
+                <input type="text" name="q" placeholder="Search Username..." value="<?= htmlspecialchars($_GET['q']??'') ?>" style="flex:1; background:#000; color:#fff; border:1px solid #444; padding:8px;">
+                
+                <select name="sort" style="background:#000; color:#fff; border:1px solid #444; padding:8px; width:auto;">
+                    <option value="rank_desc" <?= ($_GET['sort']??'')=='rank_desc'?'selected':'' ?>>Rank (High-Low)</option>
+                    <option value="rank_asc" <?= ($_GET['sort']??'')=='rank_asc'?'selected':'' ?>>Rank (Low-High)</option>
+                    <option value="name_asc" <?= ($_GET['sort']??'')=='name_asc'?'selected':'' ?>>Alphabetical (A-Z)</option>
+                    <option value="active_desc" <?= ($_GET['sort']??'')=='active_desc'?'selected':'' ?>>Last Active (Newest)</option>
+                </select>
+                
+                <button type="submit" class="badge" style="background:#6a9c6a; color:#000; border:none; padding:8px 15px; cursor:pointer; font-weight:bold;">FILTER</button>
+            </form>
+        </div>
+        
         <details style="margin-bottom: 20px; border: 1px solid #333; background: #111;">
             <summary style="padding: 15px; cursor: pointer; color: #e5c07b; font-size: 0.8rem; font-weight: bold; outline: none;">RANK DEFINITIONS [+]</summary>
             <div style="padding: 15px; border-top: 1px solid #333;">
@@ -880,20 +896,31 @@ if ($tab === 'logs') {
             </div>
         </details>
         
-        <div style="margin-bottom:15px; display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">
-            <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
-                <strong style="color:#8e44ad; display:block; margin-bottom:5px;">PRESET: VIOLET GLOW</strong>
-                <code>color:#8e44ad; text-shadow:0 0 10px #8e44ad; font-weight:bold;</code>
-            </div>
-            <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
-                <strong style="color:#e06c75; display:block; margin-bottom:5px;">PRESET: CYBER GLITCH</strong>
-                <code>[glitch][color=#e06c75][b]{u}[/b][/color][/glitch]</code>
-            </div>
-            <div style="background:#111; border:1px solid #333; padding:10px; font-size:0.65rem;">
-                <strong style="color:#98c379; display:block; margin-bottom:5px;">PRESET: RAINBOW MATRIX</strong>
-                <code>[rainbow][cmd]{u}[/cmd][/rainbow]</code>
-            </div>
-        </div>
+        <?php 
+        // DYNAMIC QUERY BUILDING
+        $q = trim($_GET['q'] ?? '');
+        $sort = $_GET['sort'] ?? 'rank_desc';
+        $sql = "SELECT * FROM users WHERE 1=1";
+        $params = [];
+
+        if($q !== '') {
+            $sql .= " AND username LIKE ?";
+            $params[] = "%$q%";
+        }
+
+        switch($sort) {
+            case 'rank_asc': $sql .= " ORDER BY rank ASC, id ASC"; break;
+            case 'name_asc': $sql .= " ORDER BY username ASC"; break;
+            case 'active_desc': $sql .= " ORDER BY last_active DESC"; break;
+            default: $sql .= " ORDER BY rank DESC, id ASC"; // rank_desc
+        }
+        
+        $sql .= " LIMIT 100";
+        $users_stmt = $pdo->prepare($sql);
+        $users_stmt->execute($params);
+        $users = $users_stmt->fetchAll();
+        ?>
+
         <table class="data-table">
             <thead>
                 <tr>
@@ -939,6 +966,9 @@ if ($tab === 'logs') {
                                 }
                             ?>
                             </a>
+                            <div style="font-size:0.6rem; color:#555; margin-top:2px;">
+                                Active: <?= $u['last_active'] ? date('m-d H:i', strtotime($u['last_active'])) : 'Never' ?>
+                            </div>
                         </div>
                     </div>
                 </td>
@@ -958,18 +988,15 @@ if ($tab === 'logs') {
                         </button>
 
                         <?php if($u['rank'] < 10): ?>
-                            <button type="submit" name="ban_user" title="Ban & Kick" onclick="return confirm('Ban this user?');"
+                            <button type="submit" name="ban_user" title="Ban & Kick" onclick="return confirm('WARNING: Ban User <?= htmlspecialchars($u['username']) ?>?');"
                                     style="height:24px; background:#1a0f0f; border:1px solid #6e3d3d; color:#e06c75; cursor:pointer; padding:0 8px; font-size:0.65rem; font-weight:bold; line-height:22px;">
                                 BAN
                             </button>
 
-                            <div style="display:flex; align-items:center; background:#111; border:1px solid #333; height:24px; padding:0 4px;">
-                                <input type="checkbox" name="confirm_del" title="Tick to Confirm Wipe" style="margin:0 4px 0 0; vertical-align:middle;">
-                                <button type="submit" name="delete_user" title="Wipe User Data" 
-                                        style="border:none; background:none; color:#e06c75; cursor:pointer; font-weight:bold; font-size:0.65rem; padding:0; line-height:24px;">
-                                    WIPE
-                                </button>
-                            </div>
+                            <button type="submit" name="delete_user" title="Wipe User Data" onclick="return confirm('CRITICAL: PERMANENTLY DELETE USER <?= htmlspecialchars($u['username']) ?>?');"
+                                    style="border:none; background:#111; color:#555; cursor:pointer; font-weight:bold; font-size:0.65rem; padding:0 8px; height:24px; line-height:24px; border:1px solid #333;">
+                                WIPE
+                            </button>
                         <?php endif; ?>
 
                     </div>
