@@ -12,13 +12,18 @@ try {
 
     if (session_status() === PHP_SESSION_NONE) session_start();
     
-    // --- 1. INSTANT HEARTBEAT (The Fix) ---
-    // This ensures you appear online immediately when navigating the site
+    // --- 1. THROTTLED HEARTBEAT (Performance Fix) ---
+    // Only updates DB once every 60 seconds per user/guest
     try {
-        if (isset($_SESSION['user_id'])) {
-            $pdo->prepare("UPDATE users SET last_active = NOW() WHERE id = ?")->execute([$_SESSION['user_id']]);
-        } elseif (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
-            $pdo->prepare("UPDATE guest_tokens SET last_active = NOW() WHERE id = ?")->execute([$_SESSION['guest_token_id']]);
+        $hb_interval = 30; 
+        if (!isset($_SESSION['last_hb']) || (time() - $_SESSION['last_hb'] > $hb_interval)) {
+            if (isset($_SESSION['user_id'])) {
+                $pdo->prepare("UPDATE users SET last_active = NOW() WHERE id = ?")->execute([$_SESSION['user_id']]);
+                $_SESSION['last_hb'] = time();
+            } elseif (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+                $pdo->prepare("UPDATE guest_tokens SET last_active = NOW() WHERE id = ?")->execute([$_SESSION['guest_token_id']]);
+                $_SESSION['last_hb'] = time();
+            }
         }
     } catch (Exception $e) {}
 

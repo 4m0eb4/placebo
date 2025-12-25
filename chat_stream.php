@@ -73,15 +73,25 @@ function render_update($row, $rank, $presets) {
 function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
     global $pdo; // REQUIRED for name lookup
     $my_id = $_SESSION['user_id'] ?? $_SESSION['guest_token_id'] ?? 0;
-    
 // --- WHISPER LOGIC & RENDERING ---
     if (($row['msg_type'] ?? '') === 'whisper') {
         $curr_type = (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) ? 'guest' : 'user';
         $my_real_id = (int)($curr_type === 'guest' ? ($_SESSION['guest_token_id'] ?? 0) : ($_SESSION['user_id'] ?? 0));
         
-        $is_sender = ($row['user_id'] == $my_real_id && $row['username'] === ($_SESSION['username'] ?? ''));
-        $is_target = ($row['target_id'] == $my_real_id && $row['target_type'] === $curr_type);
+        // [FIX] SENDER CHECK:
+        // If message user_id is 0, it's a Guest Sender. We verify by matching Username.
+        // If message user_id > 0, it's a User Sender. We match by ID.
+        if ($row['user_id'] == 0) {
+            $is_sender = ($row['username'] === ($_SESSION['username'] ?? ''));
+        } else {
+            $is_sender = ($row['user_id'] == $my_real_id);
+        }
+
+        // [FIX] TARGET CHECK:
+        // Ensure strictly typed integer comparison
+        $is_target = ((int)$row['target_id'] === $my_real_id && $row['target_type'] === $curr_type);
         
+        // Hide if not involved (and not Admin Rank 9)
         if (!$is_sender && !$is_target && $viewer_rank < 9) return;
 
         // Determine Label
@@ -120,7 +130,6 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
               </div>";
         return; 
     }
-    
     if (($row['msg_type'] ?? 'normal') === 'system' || ($row['msg_type'] ?? 'normal') === 'broadcast') {
         $is_broadcast = ($row['msg_type'] === 'broadcast');
         
