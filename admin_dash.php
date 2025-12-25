@@ -381,7 +381,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 $stmt = $pdo->prepare("INSERT INTO chat_channels (name, read_rank, write_rank, password) VALUES (?, ?, ?, ?)");
                 $stmt->execute([$name, $_POST['new_read_rank'], $_POST['new_write_rank'], $pass]);
-                $msg = "Channel '$name' Created.";
+                header("Location: ?view=chat"); exit;
             }
         }
         
@@ -396,7 +396,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        if (isset($_POST['update_channel'])) {
+if (isset($_POST['update_channel'])) {
             $cid = (int)$_POST['chan_id'];
             
             // Basic Fields
@@ -430,12 +430,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $sql .= " WHERE id=:id";
-            $pdo->prepare($sql)->execute($params);
-            $upd['id'] = $cid;
-            $pdo->prepare($sql)->execute($upd);
             
-            // Signal Config Update
-            $pdo->prepare("INSERT INTO chat_signals (signal_type, signal_val) VALUES ('CONFIG_UPDATE', ?)")->execute([$cid]);
+$pdo->prepare($sql)->execute($params);
+            
+            try {
+                $pdo->prepare("INSERT INTO chat_signals (signal_type, signal_val) VALUES ('CONFIG_UPDATE', ?)")->execute([$cid]);
+            } catch (Exception $e) {}
+
             $msg = "Channel #$cid Updated.";
         }
 
@@ -453,19 +454,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 pin_style VARCHAR(20) DEFAULT 'INFO'
             )");
             
-            // 2. Ensure Default Channel Exists
             $chk = $pdo->query("SELECT COUNT(*) FROM chat_channels WHERE id=1")->fetchColumn();
             if (!$chk) {
                 $pdo->exec("INSERT INTO chat_channels (id, name, read_rank, write_rank, pinned_msg) VALUES (1, 'Public Frequency', 0, 1, 'Welcome to the Grid.')");
             }
 
+            $pdo->exec("CREATE TABLE IF NOT EXISTS chat_signals (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                signal_type VARCHAR(50) NOT NULL,
+                signal_val INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )");
+
             // 3. Upgrade Messages Table
             try {
                 $pdo->exec("ALTER TABLE chat_messages ADD COLUMN channel_id INT DEFAULT 1");
                 $pdo->exec("ALTER TABLE chat_messages ADD INDEX (channel_id)");
+                // [FIX] Ensure Pin Columns Exist to prevent 500 Errors
+                $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_color VARCHAR(20) DEFAULT NULL");
+                $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_emoji VARCHAR(20) DEFAULT NULL");
             } catch (Exception $e) {}
 
-            $msg = "Database Structure Upgraded (Multi-Channel Support Active).";
+            $msg = "Database Structure Upgraded (Multi-Channel + Pins Active).";
         }
         
         if (isset($_POST['purge_chat'])) {

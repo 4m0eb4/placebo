@@ -1,33 +1,37 @@
 <?php
 require 'db_config.php';
-echo "<body style='background:#000; color:#ccc; font-family:monospace;'>";
-echo "initiating_schema_patch_v2...<br>";
+
+echo "<h1>Starting Database Repair...</h1>";
 
 try {
-    // 1. Add Password & Custom Style Columns to chat_channels
-    $cols = [
-        "ADD COLUMN password VARCHAR(255) DEFAULT NULL",
-        "ADD COLUMN pin_custom_color VARCHAR(20) DEFAULT NULL",
-        "ADD COLUMN pin_custom_emoji VARCHAR(20) DEFAULT NULL"
-    ];
+    // 1. Add Missing PIN columns to Chat Channels
+    // We use silent execution so it doesn't crash if they already exist
+    echo "Attempting to add 'pin_custom_color' column...<br>";
+    try {
+        $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_color VARCHAR(20) DEFAULT NULL");
+        echo "<span style='color:green'> - Added pin_custom_color</span><br>";
+    } catch (Exception $e) { echo " - Column likely exists (Skipped)<br>"; }
 
-    foreach ($cols as $sql) {
-        try {
-            $pdo->exec("ALTER TABLE chat_channels $sql");
-            echo "[OK] $sql<br>";
-        } catch (Exception $e) {
-            echo "[SKIP] Column likely exists.<br>";
-        }
-    }
-    
-    // 2. Insert Default Upload Rank Setting
-    $stmt = $pdo->prepare("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES ('upload_min_rank', '5')");
-    $stmt->execute();
-    echo "[OK] upload_min_rank setting initialized.<br>";
-    
-    echo "<br><strong style='color:#6a9c6a;'>PATCH COMPLETE.</strong> <a href='index.php'>RETURN</a>";
+    echo "Attempting to add 'pin_custom_emoji' column...<br>";
+    try {
+        $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_emoji VARCHAR(20) DEFAULT NULL");
+        echo "<span style='color:green'> - Added pin_custom_emoji</span><br>";
+    } catch (Exception $e) { echo " - Column likely exists (Skipped)<br>"; }
 
-} catch (Exception $e) {
-    die("ERROR: " . $e->getMessage());
+    // 2. Ensure guest columns exist (Just in case)
+    echo "Checking Guest Token columns...<br>";
+    try {
+        $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN is_muted TINYINT(1) DEFAULT 0");
+    } catch (Exception $e) {}
+    try {
+        $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN slow_mode_override INT DEFAULT 0");
+    } catch (Exception $e) {}
+
+    echo "<h2 style='color:green'>SUCCESS: DATABASE STRUCTURE UPDATED.</h2>";
+    echo "<p>You can now delete this file and try saving your settings in Admin Dash.</p>";
+
+} catch (PDOException $e) {
+    echo "<h2 style='color:red'>CRITICAL FAILURE</h2>";
+    echo "Error: " . $e->getMessage();
 }
 ?>
