@@ -15,7 +15,7 @@ if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); e
 // Fetch Target User
 $id = $_GET['id'] ?? $_SESSION['user_id'];
 // ADDED: chat_color, mute/slow status
-$stmt = $pdo->prepare("SELECT username, rank, chat_color, created_at, pgp_public_key, pgp_fingerprint, is_muted, slow_mode_override FROM users WHERE id = ?");
+$stmt = $pdo->prepare("SELECT username, rank, chat_color, created_at, last_active, pgp_public_key, pgp_fingerprint, is_muted, slow_mode_override FROM users WHERE id = ?");
 $stmt->execute([$id]);
 $profile = $stmt->fetch();
 
@@ -88,7 +88,8 @@ $rank_color = match((int)$profile['rank']) {
             </div>
 
             <div class="p-stat">IDENTITY ID: <span>#<?= str_pad($id, 4, '0', STR_PAD_LEFT) ?></span></div>
-            <div class="p-stat">REGISTERED: <span><?= $profile['created_at'] ?></span></div>
+            <div class="p-stat">REGISTERED: <span><?= date('d/m/y', strtotime($profile['created_at'])) ?></span></div>
+            <div class="p-stat">LAST ACTIVE: <span><?= $profile['last_active'] ? date('d/m/y', strtotime($profile['last_active'])) : 'Never' ?></span></div>
             <div class="p-stat">FINGERPRINT: <span style="color: #e06c75;"><?= htmlspecialchars($profile['pgp_fingerprint']) ?></span></div>
 
             <div style="margin-top: 25px;">
@@ -140,7 +141,5 @@ $rank_color = match((int)$profile['rank']) {
 
         </div>
     </div>
-</div>
-
 </body>
 </html>

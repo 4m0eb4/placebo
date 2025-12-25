@@ -200,9 +200,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'site_theme' => $_POST['site_theme'],
                 'site_bg_url' => $bg_path,
                 'max_chat_history' => $_POST['max_history'] ?? 150,
-                'show_online_nodes' => isset($_POST['show_nodes']) ? '1' : '0',
+                'show_online_nodes' => $_POST['show_nodes'] ?? '1',
                 // [MOVED] Rank settings moved to Perms tab
-                'registration_enabled' => isset($_POST['reg_enabled']) ? '1' : '0',
+                'registration_enabled' => $_POST['reg_enabled'] ?? '1',
                 'registration_msg' => $_POST['reg_msg'],
                 'allow_op_mod' => isset($_POST['allow_op_mod']) ? '1' : '0'
             ];
@@ -620,7 +620,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 8. PERMISSIONS (OWNER ONLY)
+    // 8. INVITE SYSTEM
+    if ($tab === 'invites') {
+        // Auto-Init Table
+        $pdo->exec("CREATE TABLE IF NOT EXISTS invites (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            code VARCHAR(64) NOT NULL UNIQUE,
+            created_by INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_used TINYINT(1) DEFAULT 0,
+            used_by INT DEFAULT NULL
+        )");
+
+        if (isset($_POST['gen_invites'])) {
+            $amt = (int)$_POST['amount'];
+            if ($amt < 1) $amt = 1;
+            if ($amt > 50) $amt = 50; // Cap at 50 per batch
+            
+            $c = 0;
+            $stmt = $pdo->prepare("INSERT INTO invites (code, created_by) VALUES (?, ?)");
+            for($i=0; $i<$amt; $i++) {
+                $token = bin2hex(random_bytes(16)); // 32 chars secure hex
+                try {
+                    $stmt->execute([$token, $_SESSION['user_id']]);
+                    $c++;
+                } catch(Exception $e) {}
+            }
+            $msg = "Generated $c New Invite Keys.";
+        }
+        
+        if (isset($_POST['del_invite'])) {
+            $pdo->prepare("DELETE FROM invites WHERE id = ?")->execute([$_POST['inv_id']]);
+            $msg = "Key Deleted.";
+        }
+        
+        if (isset($_POST['flush_invites'])) {
+            $pdo->exec("DELETE FROM invites WHERE is_used = 1");
+            $msg = "Used Keys Flushed.";
+        }
+    }
+
+    // 9. PERMISSIONS (OWNER ONLY)
     if ($tab === 'perms' && $_SESSION['rank'] >= 10) {
         if (isset($_POST['save_perms'])) {
             // [ADDED] Save moved settings
@@ -739,6 +779,10 @@ if ($tab === 'logs') {
 
         <?php if($my_rank >= $req_automod): ?>
             <a href="?view=automod" class="<?= $tab=='automod'?'active':'' ?>">AUTOMOD</a>
+        <?php endif; ?>
+
+        <?php if($my_rank >= ($sys_perms['perm_invite'] ?? 5)): ?>
+            <a href="?view=invites" class="<?= $tab=='invites'?'active':'' ?>">INVITE KEYS</a>
         <?php endif; ?>
 
         <?php if($my_rank >= 10): ?>
@@ -1020,7 +1064,7 @@ if ($tab === 'logs') {
                             ?>
                             </a>
                             <div style="font-size:0.6rem; color:#555; margin-top:2px;">
-                                Active: <?= $u['last_active'] ? date('m-d H:i', strtotime($u['last_active'])) : 'Never' ?>
+                                Active: <?= $u['last_active'] ? date('d/m/y', strtotime($u['last_active'])) : 'Never' ?>
                             </div>
                         </div>
                     </div>
@@ -1564,6 +1608,64 @@ if ($tab === 'logs') {
                 </tbody>
             </table>
         </div>
+        <?php endif; ?>
+
+        <?php if($tab === 'invites'): ?>
+        <div class="panel-header"><h2 class="panel-title">Invite Management</h2></div>
+        <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
+
+        <div style="background:#111; border:1px solid #333; padding:20px; margin-bottom:20px;">
+            <h3 style="color:#6a9c6a; font-size:0.9rem; margin-top:0;">GENERATE NEW KEYS</h3>
+            <form method="POST" style="display:flex; gap:10px; align-items:center;">
+                <input type="number" name="amount" value="1" min="1" max="50" style="width:80px; background:#000; border:1px solid #444; color:#fff; padding:10px;">
+                <button type="submit" name="gen_invites" class="btn-primary" style="width:auto; padding:10px 20px;">GENERATE TOKENS</button>
+            </form>
+        </div>
+
+        <div class="panel-header" style="border:none; margin-bottom:10px;">
+            <h2 class="panel-title" style="font-size:0.9rem; color:#ccc;">ACTIVE KEY BANK</h2>
+            <form method="POST" onsubmit="return confirm('Delete all used keys?');">
+                <button type="submit" name="flush_invites" class="badge" style="background:#222; border:1px solid #444; color:#888; cursor:pointer;">FLUSH USED</button>
+            </form>
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Token (Copy Securely)</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php 
+            $invites = $pdo->query("SELECT * FROM invites ORDER BY is_used ASC, created_at DESC LIMIT 100")->fetchAll();
+            if(empty($invites)) echo "<tr><td colspan='3' style='text-align:center; padding:20px; color:#555;'>No keys found.</td></tr>";
+            foreach($invites as $i): 
+                $is_used = ($i['is_used'] == 1);
+                $style = $is_used ? "color:#555; text-decoration:line-through;" : "color:#6a9c6a; font-weight:bold;";
+            ?>
+            <tr>
+                <td style="font-family:monospace; font-size:0.8rem; <?= $style ?>">
+                    <?= htmlspecialchars($i['code']) ?>
+                </td>
+                <td>
+                    <?php if($is_used): ?>
+                        <span class="badge" style="color:#555; border-color:#333;">USED (ID: <?= $i['used_by'] ?>)</span>
+                    <?php else: ?>
+                        <span class="badge" style="color:#6a9c6a; border-color:#6a9c6a;">ACTIVE</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <form method="POST">
+                        <input type="hidden" name="inv_id" value="<?= $i['id'] ?>">
+                        <button type="submit" name="del_invite" class="badge" style="background:none; border:none; color:#e06c75; cursor:pointer; font-weight:bold;">x</button>
+                    </form>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
         <?php endif; ?>
 
         <?php if($tab === 'perms' && $_SESSION['rank'] >= 10): ?>

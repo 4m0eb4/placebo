@@ -118,8 +118,10 @@ $has_next = $check_next->fetchColumn();
         </div>
     <?php else: ?>
         <div style="border-top: 1px solid #222;">
-            <?php foreach($files as $f): ?>
-                <a href="file_view.php?id=<?= $f['id'] ?>" class="list-row">
+            <?php foreach($files as $f): 
+                $target_page = ($view === 'zip') ? 'archive_view.php' : 'file_view.php';
+            ?>
+                <a href="<?= $target_page ?>?id=<?= $f['id'] ?>" class="list-row">
                     <span>
                         <span style="color: #6a9c6a;">[<?= strtoupper(pathinfo($f['original_filename'], PATHINFO_EXTENSION)) ?>]</span>
                         <?= htmlspecialchars($f['title'] ?: $f['original_filename']) ?>

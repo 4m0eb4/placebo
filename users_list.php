@@ -84,6 +84,9 @@ $users = $stmt->fetchAll();
                     <span class="u-rank">LVL <?= $u['rank'] ?></span>
                 </div>
                         <div style="text-align:right;">
+                             <span style="font-size:0.7rem; color:#444; margin-right:10px; font-family:monospace;">
+                                 <?= $u['last_active'] ? date('d/m/y', strtotime($u['last_active'])) : '' ?>
+                             </span>
                              <span class="u-status"><?= htmlspecialchars($u['user_status'] ?? '') ?></span>
                              <a href="pm.php?to=<?= $u['id'] ?>" target="_blank" style="margin-left:10px; color:#6a9c6a; text-decoration:none;">[ PM ]</a>
                         </div>

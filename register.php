@@ -18,8 +18,27 @@ $state = 'FORM'; // 'FORM' or 'CAPTCHA'
 
 // Handle Form Submission
 if (isset($_POST['action_check']) || isset($_POST['action_register'])) {
-    if (!$reg_enabled) {
-        $error = "REGISTRATION IS DISABLED.";
+    
+    // --- INVITE SYSTEM BYPASS ---
+    $has_bypass = false;
+    $inv_code = trim($_POST['invite_code'] ?? '');
+    
+    // [FIX] Fallback: Check Session (For Step 2: Captcha -> Register)
+    if (empty($inv_code) && isset($_SESSION['reg_data']['invite_code'])) {
+        $inv_code = $_SESSION['reg_data']['invite_code'];
+    }
+    
+    // If closed, check for valid invite
+    if (!$reg_enabled && !empty($inv_code)) {
+        try {
+            $istmt = $pdo->prepare("SELECT id FROM invites WHERE code = ? AND is_used = 0");
+            $istmt->execute([$inv_code]);
+            if ($istmt->fetch()) $has_bypass = true;
+        } catch(Exception $e) {}
+    }
+
+    if (!$reg_enabled && !$has_bypass) {
+        $error = "REGISTRATION CLOSED. VALID INVITE TOKEN REQUIRED.";
     } else {
         
         // --- STEP 1: VALIDATE INPUT ---
@@ -166,6 +185,13 @@ if ($pgp_valid && !$error) {
                         
                         // --- SYSTEM ALERT: NEW USER ---
                         try {
+                            // CONSUME INVITE TOKEN (If Used)
+                            $used_inv = $d['invite_code'] ?? '';
+                            if (!empty($used_inv)) {
+                                $new_uid = $pdo->lastInsertId();
+                                $pdo->prepare("UPDATE invites SET is_used = 1, used_by = ? WHERE code = ?")->execute([$new_uid, $used_inv]);
+                            }
+
                             $s_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='alert_new_user_rank'");
                             $req_rank = (int)($s_stmt->fetchColumn() ?: 9); 
                             
@@ -267,10 +293,22 @@ $default_tab_info = ($default_tab_reg === '') ? 'checked' : '';
                         <button type="submit" name="action_check" class="btn-primary">Verify Data</button>
                     </form>
                 <?php else: ?>
-                    <div style="padding: 30px; text-align: center; border: 1px dashed #e06c75; background: #1a0505; color: #e06c75; margin: 10px;">
-                        <h3 style="margin-top: 0; font-size: 1rem; border-bottom: 1px solid #e06c75; padding-bottom: 5px; display:inline-block;">ACCESS RESTRICTED</h3>
-                        <p style="white-space: pre-wrap; font-family: monospace; font-size: 0.8rem; line-height: 1.5; overflow-wrap: break-word;"><?= htmlspecialchars($reg_msg) ?></p>
+                    <div style="border: 1px dashed #e5c07b; background: #1a1a05; padding: 15px; margin-bottom: 20px;">
+                        <div style="color:#e5c07b; font-size:0.8rem; font-weight:bold; margin-bottom:5px;">⚠️ <?= htmlspecialchars($reg_msg) ?></div>
+                        <div style="color:#888; font-size:0.7rem;">A valid invite token is required to bypass this restriction.</div>
                     </div>
+                    
+                    <form method="POST" class="login-form">
+                        <div class="input-group"><label style="color:#e5c07b;">INVITE TOKEN</label><input type="text" name="invite_code" required autocomplete="off" placeholder="Enter secure token..."></div>
+                        <div style="border-top:1px solid #333; margin:15px 0;"></div>
+                        
+                        <div class="input-group"><label>Username</label><input type="text" name="username" required></div>
+                        <div class="input-group"><label>Password</label><input type="password" name="password" required></div>
+                        <div class="input-group"><label>Confirm Password</label><input type="password" name="password_confirm" required></div>
+                        <div class="input-group"><label>PGP Fingerprint</label><input type="text" name="fingerprint" required></div>
+                        <div class="input-group"><label>PGP Public Key</label><textarea name="pgp_key" class="pgp-box" required></textarea></div>
+                        <button type="submit" name="action_check" class="btn-primary" style="background:#e5c07b; color:#000;">Verify Token & Data</button>
+                    </form>
                 <?php endif; ?>
             </div>
         </div>

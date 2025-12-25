@@ -1,30 +1,19 @@
 <?php
 require 'db_config.php';
 
-echo "<h2>Database Repair: Guest System</h2>";
-
 try {
-    // 1. Add guest_username if missing
-    try {
-        $pdo->query("SELECT guest_username FROM guest_tokens LIMIT 1");
-        echo "✅ Column 'guest_username' already exists.<br>";
-    } catch (Exception $e) {
-        $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN guest_username VARCHAR(50) DEFAULT NULL");
-        echo "🛠️ Added column 'guest_username'.<br>";
-    }
-
-    // 2. Add guest_color if missing
-    try {
-        $pdo->query("SELECT guest_color FROM guest_tokens LIMIT 1");
-        echo "✅ Column 'guest_color' already exists.<br>";
-    } catch (Exception $e) {
-        $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN guest_color VARCHAR(20) DEFAULT '#888888'");
-        echo "🛠️ Added column 'guest_color'.<br>";
-    }
-    
-    echo "<hr><strong>SUCCESS:</strong> Database is ready for Guest Comments.";
+    echo "Checking Invite Table...<br>";
+    $pdo->exec("CREATE TABLE IF NOT EXISTS invites (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(64) NOT NULL UNIQUE,
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_used TINYINT(1) DEFAULT 0,
+        used_by INT DEFAULT NULL
+    )");
+    echo "SUCCESS: 'invites' table verified.<br>";
     
 } catch (PDOException $e) {
-    die("ERROR: " . $e->getMessage());
+    echo "ERROR: " . $e->getMessage();
 }
 ?>
