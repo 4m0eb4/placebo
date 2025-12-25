@@ -2,8 +2,21 @@
 session_start();
 require 'db_config.php';
 
-// 1. Auth Check
+// 1. Auth & Rank Check
 if (!isset($_SESSION['fully_authenticated'])) { die("<body style='background:#000;color:#555;'>ACCESS DENIED</body>"); }
+
+// Fetch Upload Perms
+$min_up_rank = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'upload_min_rank'")->fetchColumn();
+$min_up_rank = (int)($min_up_rank ?: 5); // Default to 5
+
+if (($_SESSION['rank'] ?? 0) < $min_up_rank) {
+    die("<!DOCTYPE html><html><body style='background:#000;color:#e06c75;font-family:monospace;display:flex;height:100vh;align-items:center;justify-content:center;'>
+        <div style='border:1px solid #e06c75;padding:20px;text-align:center;'>
+            <h2 style='margin-top:0;'>CLEARANCE INSUFFICIENT</h2>
+            <p>UPLOAD ACCESS REQUIRES RANK $min_up_rank+</p>
+        </div>
+    </body></html>");
+}
 
 $msg = '';
 $status_color = '#e06c75'; // Red by default

@@ -36,19 +36,29 @@ if ($sort === 'top') {
     $order_sql = "score DESC, created_at DESC";
 }
 
+// SEARCH LOGIC
+$q = trim($_GET['q'] ?? '');
+$params = [$view];
+$search_sql = "";
+if ($q) {
+    $search_sql = "AND (title LIKE ? OR original_filename LIKE ?)";
+    $params[] = "%$q%";
+    $params[] = "%$q%";
+}
+
 // Fetch Data
 $sql = "
     SELECT u.*, 
     (SELECT COALESCE(SUM(vote),0) FROM upload_votes WHERE upload_id = u.id) as score,
     (SELECT COUNT(*) FROM upload_comments WHERE upload_id = u.id) as comments
     FROM uploads u 
-    WHERE category = ? 
+    WHERE category = ? $search_sql
     ORDER BY $order_sql 
     LIMIT $per_page OFFSET $offset
 ";
 
 $stmt = $pdo->prepare($sql);
-$stmt->execute([$view]);
+$stmt->execute($params);
 $files = $stmt->fetchAll();
 
 // Check for next page
@@ -81,9 +91,19 @@ $has_next = $check_next->fetchColumn();
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="padding: 20px;">
     
-    <div style="margin-bottom: 20px;">
-        <span class="term-title">DATA_ARCHIVE // <?= strtoupper($view) ?>S</span>
-        <a href="index.php" style="float:right; color:#444; text-decoration:none;">[ EXIT ]</a>
+    <div style="margin-bottom: 20px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <span class="term-title">DATA_ARCHIVE // <?= strtoupper($view) ?>S</span>
+        </div>
+        
+        <form method="GET" style="display:flex; gap:5px;">
+            <input type="hidden" name="view" value="<?= $view ?>">
+            <input type="hidden" name="sort" value="<?= $sort ?>">
+            <input type="text" name="q" value="<?= htmlspecialchars($q) ?>" placeholder="Search..." style="background:#000; color:#fff; border:1px solid #333; padding:5px; font-family:monospace;">
+            <button type="submit" style="background:#1a1a1a; border:1px solid #333; color:#6a9c6a; cursor:pointer;">&gt;</button>
+        </form>
+
+        <a href="index.php" style="color:#444; text-decoration:none;">[ EXIT ]</a>
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #333; margin-bottom:20px;">

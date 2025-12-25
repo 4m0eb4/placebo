@@ -22,6 +22,7 @@ try {
 <!DOCTYPE html>
 <html>
 <head>
+    <meta http-equiv="refresh" content="30">
     <link rel="stylesheet" href="style.css">
     <style>
         body { background: #0d0d0d; padding: 15px; font-family: monospace; }
@@ -33,6 +34,7 @@ try {
         }
         .chan-row:hover { border-color: #56b6c2; background: #161616; }
         .chan-row.active { border-color: #6a9c6a; border-left: 4px solid #6a9c6a; }
+        .chan-row.signal-glow { box-shadow: 0 0 8px rgba(86, 182, 194, 0.3); border-color: #56b6c2; }
         .chan-name { font-weight: bold; color: #e5c07b; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
         .chan-meta { font-size: 0.7rem; color: #666; margin-top: 4px; }
         
@@ -51,8 +53,10 @@ try {
         <?php 
         $has_pass = !empty($c['password']);
         $is_active = in_array($c['id'], $active_chans);
+        $row_class = ($c['id'] == $active_id) ? 'active' : '';
+        if ($is_active && $c['id'] != $active_id) $row_class .= ' signal-glow';
         ?>
-        <a href="chat.php?set_channel=<?= $c['id'] ?>" target="_top" class="chan-row <?= ($c['id'] == $active_id) ? 'active' : '' ?>">
+        <a href="chat.php?set_channel=<?= $c['id'] ?>" target="_top" class="chan-row <?= $row_class ?>">
             <div>
                 <span class="chan-name">
                     <?php if($c['is_locked']): ?><span style="color:#e06c75;">[LOCKED]</span><?php endif; ?>

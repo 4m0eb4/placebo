@@ -37,8 +37,15 @@ if (isset($_GET['q']) && !empty($_GET['q'])) {
     $params[] = $term;
     $params[] = $term;
 }
-
 $sql .= " ORDER BY lc.display_order ASC, sl.created_at DESC";
+
+// Pagination
+$page = (int)($_GET['page'] ?? 1);
+if ($page < 1) $page = 1;
+$per_page = 50;
+$offset = ($page - 1) * $per_page;
+
+$sql .= " LIMIT $per_page OFFSET $offset";
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
@@ -157,6 +164,17 @@ foreach($raw_links as $l) {
             <?php endforeach; ?>
 
         <?php endif; ?>
+        
+        <div style="margin-top:20px; border-top:1px solid #333; padding-top:15px; display:flex; justify-content:center; gap:10px;">
+            <?php 
+                $base_url = "?cat=".htmlspecialchars($_GET['cat']??'')."&q=".htmlspecialchars($_GET['q']??'')."&page=";
+                if($page > 1) echo '<a href="'.$base_url.($page-1).'" style="color:#fff;">&lt; PREV</a>';
+                echo '<span style="color:#666;">PAGE '.$page.'</span>';
+                // We assume Next is available if we got full page, crude but effective for No-JS/Tor
+                if(count($raw_links) >= $per_page) echo '<a href="'.$base_url.($page+1).'" style="color:#fff;">NEXT &gt;</a>';
+            ?>
+        </div>
+
     </div>
 </div>
 </body>

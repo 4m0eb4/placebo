@@ -3,9 +3,24 @@ session_start();
 require 'db_config.php';
 require 'bbcode.php'; // Load Engine
 
-// Security: Rank 9+ Only
-if (!isset($_SESSION['rank']) || $_SESSION['rank'] < 9) {
-    header("Location: index.php"); exit;
+// Security: Dynamic Permissions
+$sys_perms = [];
+try {
+    $raw = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'")->fetchColumn();
+    $sys_perms = json_decode($raw, true) ?? [];
+} catch(Exception $e){}
+
+$req_post = $sys_perms['perm_create_post'] ?? 9;
+
+if (!isset($_SESSION['rank']) || $_SESSION['rank'] < $req_post) {
+    die("
+    <body style='background:#0d0d0d; color:#e06c75; font-family:monospace; display:flex; align-items:center; justify-content:center; height:100vh;'>
+        <div style='border:1px solid #e06c75; padding:20px; text-align:center;'>
+            <h2 style='margin:0;'>ACCESS DENIED</h2>
+            <p>POSTING REQUIRES RANK $req_post+.</p>
+            <a href='index.php' style='color:#fff;'>[ RETURN ]</a>
+        </div>
+    </body>");
 }
 
 // EDIT MODE logic
