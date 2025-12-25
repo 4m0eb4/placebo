@@ -65,15 +65,27 @@ function parse_emojis($text) {
     return str_replace(array_keys($map), array_values($map), $text);
 }
 
-// --- FETCH CHAT SETTINGS ---
-$c_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_locked', 'chat_slow_mode', 'chat_lock_req')");
-$c_conf = [];
-while($r = $c_stmt->fetch()) $c_conf[$r['setting_key']] = $r['setting_value'];
+// --- FETCH CHANNEL SETTINGS ---
+$active_chan = $_SESSION['active_channel'] ?? 1;
+$c_stmt = $pdo->prepare("SELECT is_locked, slow_mode, write_rank FROM chat_channels WHERE id = ?");
+$c_stmt->execute([$active_chan]);
+$chan_conf = $c_stmt->fetch();
 
-$is_locked = ($c_conf['chat_locked'] ?? '0') === '1';
-$lock_req  = (int)($c_conf['chat_lock_req'] ?? 9); // Default to Admin (9)
-$slow_sec  = (int)($c_conf['chat_slow_mode'] ?? 0);
+// Fallback to Global Defaults if channel invalid
+if (!$chan_conf) { $chan_conf = ['is_locked'=>0, 'slow_mode'=>0, 'write_rank'=>1]; }
+
+$is_locked = ($chan_conf['is_locked'] == 1);
+$lock_req  = 9; // Hardcoded Admin Override for Locks
+$slow_sec  = (int)$chan_conf['slow_mode'];
+$write_req = (int)$chan_conf['write_rank'];
+
 $my_rank   = $_SESSION['rank'] ?? 1;
+
+// Rank Check for Writing
+if ($my_rank < $write_req) {
+    echo "<div style='color:#e06c75; font-family:monospace; padding:10px; font-size:0.8rem;'>[READ ONLY FREQUENCY]</div>";
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 0. ENFORCE LOCK
@@ -224,20 +236,20 @@ if (!empty($msg)) {
 
         // 4. Normal Message Insert
         try {
-            $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, 'normal')");
-            $stmt->execute([$_SESSION['user_id'] ?? 0, $_SESSION['username'], $msg, $_SESSION['rank'] ?? 0, $color]);
+            $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, channel_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, 'normal')");
+            $stmt->execute([$_SESSION['user_id'] ?? 0, $active_chan, $_SESSION['username'], $msg, $_SESSION['rank'] ?? 0, $color]);
             
-            // --- AUTO PRUNE ---
+            // --- AUTO PRUNE (Per Channel) ---
             $limit_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'max_chat_history'");
             $limit = (int)($limit_stmt->fetchColumn() ?: 150);
             
             $cnt = $pdo->query("SELECT COUNT(*) FROM chat_messages")->fetchColumn();
-            if ($cnt > $limit) {
-                // Delete everything OLDER than the Nth newest message
-                $pdo->exec("DELETE FROM chat_messages WHERE id <= (
+            // Prune if total DB size gets too large (Global Prune to keep DB small)
+            if ($cnt > ($limit * 2)) {
+                 $pdo->exec("DELETE FROM chat_messages WHERE id <= (
                     SELECT id FROM (SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1 OFFSET $limit) tmp
                 )");
-                // Signal Purge to refresh clients
+                // Signal Purge is aggressive but keeps it clean
                 $pdo->prepare("INSERT INTO chat_signals (signal_type) VALUES ('PURGE')")->execute();
             }
         } catch (Exception $e) { }

@@ -61,24 +61,29 @@ $msg = '';
 // --- ACTION HANDLERS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // System Broadcast
+    // System Broadcast (Restored & Enhanced)
     if (isset($_POST['send_sys_msg'])) {
         $txt = strip_tags($_POST['sys_msg_text']);
         $style = $_POST['sys_msg_type']; 
         $custom_hex = trim($_POST['sys_custom_hex'] ?? '');
         $custom_label = trim($_POST['sys_custom_label'] ?? '');
+        $target_chan = (int)($_POST['target_channel'] ?? 0); // 0 = Global/All
 
-        // Validation: Ensure hex starts with # if provided
+        // 1. Construct the Message Data
+        $final_label = 'SYSTEM';
+        $final_hex = '#333333';
+        $final_body = $txt;
+        $type = 'system'; // Default
+
+        // Custom Styling Logic
         if (!empty($custom_hex) && $custom_hex[0] !== '#') $custom_hex = '#' . $custom_hex;
-
+        
         if (!empty($custom_hex) || !empty($custom_label) || $style === 'BLANK') {
+            $type = 'broadcast';
             $final_hex = !empty($custom_hex) ? $custom_hex : '#333333';
-            // Explicitly set to empty string if style is BLANK or label is empty
             $final_label = !empty($custom_label) ? $custom_label : '';
-            
-            $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, color_hex, msg_type) VALUES (0, ?, ?, 10, ?, 'broadcast')")
-                ->execute([$final_label, $txt, $final_hex]);
         } else {
+            // Preset Styling
             $emoji = match($style) {
                 'WARNING' => '⚠️ [RED ALERT] ',
                 'CRITICAL' => '☣️ [CRITICAL] ',
@@ -86,11 +91,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'SUCCESS' => '✅ [SUCCESS] ',
                 default => 'ℹ️ [INFO] '
             };
-            $body = $emoji . $txt;
-            
-            $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, msg_type) VALUES (0, 'SYSTEM', ?, 10, 'system')")
-                ->execute([$body]);
+            $final_body = $emoji . $txt;
         }
+
+        // 2. Dispatch Logic (Global vs Targeted)
+        if ($target_chan === 0) {
+            // GLOBAL: Insert into ALL active channels
+            // (If we have 100 channels this might be slow, but for now it's fine)
+            $chans = $pdo->query("SELECT id FROM chat_channels")->fetchAll(PDO::FETCH_COLUMN);
+            $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, channel_id, username, message, rank, color_hex, msg_type) VALUES (0, ?, ?, ?, 10, ?, ?)");
+            foreach($chans as $cid) {
+                $stmt->execute([$cid, $final_label, $final_body, $final_hex, $type]);
+            }
+        } else {
+            // TARGETED
+            $pdo->prepare("INSERT INTO chat_messages (user_id, channel_id, username, message, rank, color_hex, msg_type) VALUES (0, ?, ?, ?, 10, ?, ?)")
+                ->execute([$target_chan, $final_label, $final_body, $final_hex, $type]);
+        }
+
         $msg = "System Alert Broadcasted.";
     }
 
@@ -342,73 +360,130 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 5. CHAT ACTIONS
     if ($tab === 'chat') {
-        // A. GLOBAL CONFIG
-        if (isset($_POST['save_chat_config'])) {
-            $upd = [
-                'chat_locked' => isset($_POST['chat_locked']) ? '1' : '0',
-                'chat_lock_req' => (int)$_POST['chat_lock_req'], // New Setting
-                'chat_slow_mode' => (int)$_POST['chat_slow_mode'],
-                'chat_pinned_msg' => trim($_POST['chat_pinned_msg']),
-                'chat_pin_style' => $_POST['chat_pin_style'] ?? 'INFO',
-                'chat_pin_custom_color' => $_POST['chat_pin_custom_color'] ?? '#6a9c6a',
-                'chat_pin_custom_emoji' => $_POST['chat_pin_custom_emoji'] ?? ''
-            ];
-            foreach($upd as $k=>$v) {
-                $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-                $stmt->execute([$k, $v, $v]);
+        // A. CHANNEL MANAGEMENT
+        if (isset($_POST['add_channel'])) {
+            $name = trim($_POST['new_chan_name']);
+            if ($name) {
+                // Initialize Table if Missing
+                $pdo->exec("CREATE TABLE IF NOT EXISTS chat_channels (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(50) NOT NULL,
+                    read_rank INT DEFAULT 0,
+                    write_rank INT DEFAULT 0,
+                    is_locked TINYINT(1) DEFAULT 0,
+                    slow_mode INT DEFAULT 0,
+                    pinned_msg TEXT,
+                    pin_style VARCHAR(20) DEFAULT 'INFO'
+                )");
+                
+                // Hash password if provided
+                $pass = !empty($_POST['new_chan_pass']) ? password_hash($_POST['new_chan_pass'], PASSWORD_DEFAULT) : NULL;
+                
+                $stmt = $pdo->prepare("INSERT INTO chat_channels (name, read_rank, write_rank, password) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$name, $_POST['new_read_rank'], $_POST['new_write_rank'], $pass]);
+                $msg = "Channel '$name' Created.";
             }
-            // Signal clients to refresh settings/pin
-            $pdo->prepare("INSERT INTO chat_signals (signal_type) VALUES ('CONFIG_UPDATE')")->execute();
-            $msg = "Chat Configuration Updated.";
+        }
+        
+        if (isset($_POST['delete_channel'])) {
+            $cid = (int)$_POST['chan_id'];
+            if ($cid != 1) { // Protect Main Channel
+                $pdo->prepare("DELETE FROM chat_channels WHERE id = ?")->execute([$cid]);
+                $pdo->prepare("DELETE FROM chat_messages WHERE channel_id = ?")->execute([$cid]);
+                $msg = "Channel #$cid Deleted.";
+            } else {
+                $msg = "Cannot delete the Default Channel.";
+            }
+        }
+        
+        if (isset($_POST['update_channel'])) {
+            $cid = (int)$_POST['chan_id'];
+            
+            // Basic Fields
+            $sql = "UPDATE chat_channels SET 
+                    name=:name, read_rank=:read_rank, write_rank=:write_rank, 
+                    slow_mode=:slow_mode, is_locked=:is_locked, 
+                    pinned_msg=:pinned_msg, pin_style=:pin_style,
+                    pin_custom_color=:pin_col, pin_custom_emoji=:pin_emo";
+            
+            $params = [
+                'name' => $_POST['c_name'],
+                'read_rank' => (int)$_POST['c_read'],
+                'write_rank' => (int)$_POST['c_write'],
+                'slow_mode' => (int)$_POST['c_slow'],
+                'is_locked' => isset($_POST['c_locked']) ? 1 : 0,
+                'pinned_msg' => trim($_POST['c_pin']),
+                'pin_style' => $_POST['c_pin_style'],
+                'pin_col' => $_POST['c_pin_color'],
+                'pin_emo' => $_POST['c_pin_emoji'],
+                'id' => $cid
+            ];
+
+            // Handle Password Update (Only if filled)
+            if (!empty($_POST['c_pass'])) {
+                $sql .= ", password=:pass";
+                $params['pass'] = password_hash($_POST['c_pass'], PASSWORD_DEFAULT);
+            }
+            // Handle Password Removal (Check box)
+            if (isset($_POST['c_rm_pass'])) {
+                $sql .= ", password=NULL";
+            }
+
+            $sql .= " WHERE id=:id";
+            $pdo->prepare($sql)->execute($params);
+            $upd['id'] = $cid;
+            $pdo->prepare($sql)->execute($upd);
+            
+            // Signal Config Update
+            $pdo->prepare("INSERT INTO chat_signals (signal_type, signal_val) VALUES ('CONFIG_UPDATE', ?)")->execute([$cid]);
+            $msg = "Channel #$cid Updated.";
         }
 
-        // B. WIPE USER
+        // B. DB REPAIR & UPGRADE
+        if (isset($_POST['repair_chat_db'])) {
+            // 1. Ensure Channels Table Exists
+            $pdo->exec("CREATE TABLE IF NOT EXISTS chat_channels (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(50) NOT NULL,
+                read_rank INT DEFAULT 0,
+                write_rank INT DEFAULT 0,
+                is_locked TINYINT(1) DEFAULT 0,
+                slow_mode INT DEFAULT 0,
+                pinned_msg TEXT,
+                pin_style VARCHAR(20) DEFAULT 'INFO'
+            )");
+            
+            // 2. Ensure Default Channel Exists
+            $chk = $pdo->query("SELECT COUNT(*) FROM chat_channels WHERE id=1")->fetchColumn();
+            if (!$chk) {
+                $pdo->exec("INSERT INTO chat_channels (id, name, read_rank, write_rank, pinned_msg) VALUES (1, 'Public Frequency', 0, 1, 'Welcome to the Grid.')");
+            }
+
+            // 3. Upgrade Messages Table
+            try {
+                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN channel_id INT DEFAULT 1");
+                $pdo->exec("ALTER TABLE chat_messages ADD INDEX (channel_id)");
+            } catch (Exception $e) {}
+
+            $msg = "Database Structure Upgraded (Multi-Channel Support Active).";
+        }
+        
+        if (isset($_POST['purge_chat'])) {
+            $pdo->exec("TRUNCATE TABLE chat_messages");
+            $pdo->exec("TRUNCATE TABLE chat_reactions"); 
+            $pdo->exec("INSERT INTO chat_signals (signal_type) VALUES ('PURGE')");
+            $msg = "Chat History Cleared.";
+        }
+        
         if (isset($_POST['wipe_user_chat'])) {
             $target = $_POST['wipe_username'];
-            // Get ID first
             $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
             $stmt->execute([$target]);
             if ($uid = $stmt->fetchColumn()) {
                 $pdo->prepare("DELETE FROM chat_messages WHERE user_id = ?")->execute([$uid]);
                 $pdo->prepare("INSERT INTO chat_signals (signal_type) VALUES ('PURGE')")->execute();
                 $msg = "All messages from '$target' obliterated.";
-            } else {
-                $msg = "User not found.";
             }
-        }
-
-        if (isset($_POST['repair_chat_db'])) {
-            // 1. Re-create Chat Table with CORRECT columns for V10 logic
-            $pdo->exec("DROP TABLE IF EXISTS chat_messages");
-            $pdo->exec("CREATE TABLE chat_messages (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                user_id INT NOT NULL,
-                username VARCHAR(50) NOT NULL,
-                message TEXT NOT NULL,
-                rank INT DEFAULT 1,
-                color_hex VARCHAR(500) DEFAULT '#888',
-                msg_type VARCHAR(20) DEFAULT 'normal',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX (created_at)
-            )");
-            
-            // 2. Patch Users Table (Expand color column for BBCode Animations)
-            try {
-                $pdo->exec("ALTER TABLE users MODIFY chat_color VARCHAR(500) DEFAULT '#888'");
-            } catch (Exception $e) { /* Ignore if already exists/fails */ }
-
-            $msg = "Database Structure Repaired (Chat Wiped + Columns Expanded).";
-        }
-        if (isset($_POST['delete_msg'])) {
-            $stmt = $pdo->prepare("DELETE FROM chat_messages WHERE id = ?");
-            $stmt->execute([$_POST['msg_id']]);
-            $msg = "Message Deleted.";
-        }
-        if (isset($_POST['purge_chat'])) {
-            $pdo->exec("TRUNCATE TABLE chat_messages");
-            $pdo->exec("TRUNCATE TABLE chat_reactions"); 
-            $pdo->exec("INSERT INTO chat_signals (signal_type) VALUES ('PURGE')");
-            $msg = "Chat History Cleared & Signal Sent.";
         }
     }
 
@@ -1224,62 +1299,82 @@ if ($tab === 'logs') {
 
 
         <?php if($tab === 'chat'): ?>
-        <div class="panel-header"><h2 class="panel-title">Chat System Controls</h2></div>
+        <div class="panel-header"><h2 class="panel-title">Frequency Control (Channels)</h2></div>
         <?php if($msg): ?><div class="success"><?= $msg ?></div><?php endif; ?>
 
         <div style="background:#111; border:1px solid #333; padding:15px; margin-bottom:20px;">
-            <h3 style="color:#6a9c6a; font-size:0.9rem; margin-top:0;">GLOBAL SETTINGS</h3>
-            <form method="POST" style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-                <div>
-                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; margin-bottom:15px; color:#e06c75; font-weight:bold;">
-                        <input type="checkbox" name="chat_locked" value="1" <?= ($settings['chat_locked']??'0')=='1' ? 'checked' : '' ?>>
-                        LOCK CHAT SIGNAL
-                    </label>
-                    <div class="input-group">
-                        <label>Lock Bypass Rank (Min)</label>
-                        <input type="number" name="chat_lock_req" value="<?= $settings['chat_lock_req'] ?? 9 ?>" min="1" max="10" style="width:100px;">
-                    </div>
-                    <div class="input-group">
-                        <label>Slow Mode (Seconds)</label>
-                        <input type="number" name="chat_slow_mode" value="<?= $settings['chat_slow_mode'] ?? 0 ?>" min="0" style="width:100px;">
-                    </div>
-                </div>
-                <div>
-                    <div class="input-group">
-                        <label>Pinned Notice (BBCode Allowed)</label>
-                        <textarea name="chat_pinned_msg" style="height:60px;"><?= htmlspecialchars($settings['chat_pinned_msg'] ?? '') ?></textarea>
-                    </div>
-                    
-                    <div class="input-group">
-                        <label>Notice Style</label>
-                        <select name="chat_pin_style" style="background:#000; color:#fff; border:1px solid #444; width:100%; padding:8px;">
-                            <option value="INFO" <?= ($settings['chat_pin_style']??'')=='INFO'?'selected':'' ?>>Blue [INFO]</option>
-                            <option value="WARN" <?= ($settings['chat_pin_style']??'')=='WARN'?'selected':'' ?>>Red [WARNING]</option>
-                            <option value="CRIT" <?= ($settings['chat_pin_style']??'')=='CRIT'?'selected':'' ?>>Purple [CRITICAL]</option>
-                            <option value="MAINT" <?= ($settings['chat_pin_style']??'')=='MAINT'?'selected':'' ?>>Gold [MAINTENANCE]</option>
-                            <option value="SUCCESS" <?= ($settings['chat_pin_style']??'')=='SUCCESS'?'selected':'' ?>>Green [SUCCESS]</option>
-                            <option value="CUSTOM" <?= ($settings['chat_pin_style']??'')=='CUSTOM'?'selected':'' ?>>[ CUSTOM ]</option>
-                            <option value="NONE" <?= ($settings['chat_pin_style']??'')=='NONE'?'selected':'' ?>>[ NONE ]</option>
-                        </select>
-                    </div>
-
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
-                        <div class="input-group" style="margin:0;">
-                            <label>Custom Hex</label>
-                            <input type="text" name="chat_pin_custom_color" value="<?= htmlspecialchars($settings['chat_pin_custom_color'] ?? '#6a9c6a') ?>" placeholder="#ffffff">
-                        </div>
-                        <div class="input-group" style="margin:0;">
-                            <label>Custom Label/Emoji</label>
-                            <input type="text" name="chat_pin_custom_emoji" value="<?= htmlspecialchars($settings['chat_pin_custom_emoji'] ?? '') ?>" placeholder="e.g. 📢">
-                        </div>
-                    </div>
-
-                    <button type="submit" name="save_chat_config" class="btn-primary" style="margin-top:5px;">APPLY CONFIG</button>
-                </div>
+            <h3 style="color:#6a9c6a; font-size:0.9rem; margin-top:0;">+ OPEN NEW FREQUENCY</h3>
+            <form method="POST" style="display:flex; gap:10px; align-items:center;">
+                <input type="text" name="new_chan_name" placeholder="Channel Name" required style="flex:1; background:#000; border:1px solid #444; color:#fff; padding:8px;">
+                <input type="password" name="new_chan_pass" placeholder="Password (Opt)" style="width:120px; background:#000; border:1px solid #444; color:#e06c75; padding:8px;">
+                <input type="number" name="new_read_rank" placeholder="Read(0)" value="0" min="0" max="10" style="width:60px; background:#000; border:1px solid #444; color:#fff; padding:8px;">
+                <input type="number" name="new_write_rank" placeholder="Write(1)" value="1" min="0" max="10" style="width:60px; background:#000; border:1px solid #444; color:#fff; padding:8px;">
+                <button type="submit" name="add_channel" class="btn-primary" style="width:auto; padding:8px 15px;">CREATE</button>
             </form>
         </div>
 
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px;">
+        <?php 
+        try {
+            $channels = $pdo->query("SELECT * FROM chat_channels ORDER BY id ASC")->fetchAll();
+        } catch(Exception $e) { $channels = []; echo "<div class='error'>DB Error: Run Repair below.</div>"; }
+        ?>
+        
+        <?php foreach($channels as $c): ?>
+        <div style="background:#0d0d0d; border:1px solid #333; margin-bottom:15px;">
+            <div style="background:#161616; padding:10px 15px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
+                <span style="color:#e5c07b; font-weight:bold;">#<?= htmlspecialchars($c['name']) ?> <span style="color:#555; font-size:0.7rem;">(ID: <?= $c['id'] ?>)</span></span>
+                <?php if($c['id'] != 1): ?>
+                    <form method="POST" onsubmit="return confirm('DELETE CHANNEL? THIS WILL WIPE ALL MESSAGES IN IT.');" style="margin:0;">
+                        <input type="hidden" name="chan_id" value="<?= $c['id'] ?>">
+                        <button type="submit" name="delete_channel" style="background:none; border:none; color:#e06c75; cursor:pointer; font-weight:bold;">[ DELETE ]</button>
+                    </form>
+                <?php else: ?>
+                    <span style="color:#555; font-size:0.7rem;">[ DEFAULT ]</span>
+                <?php endif; ?>
+            </div>
+            
+            <form method="POST" style="padding:15px; display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; align-items:end;">
+                <input type="hidden" name="chan_id" value="<?= $c['id'] ?>">
+                
+                <div class="input-group" style="margin:0;"><label>Name</label><input type="text" name="c_name" value="<?= htmlspecialchars($c['name']) ?>"></div>
+                <div class="input-group" style="margin:0;"><label>Read Rank</label><input type="number" name="c_read" value="<?= $c['read_rank'] ?>"></div>
+                <div class="input-group" style="margin:0;"><label>Write Rank</label><input type="number" name="c_write" value="<?= $c['write_rank'] ?>"></div>
+                
+                <div class="input-group" style="margin:0;">
+                    <label style="color:#e06c75;">New Password</label>
+                    <input type="password" name="c_pass" placeholder="<?= !empty($c['password']) ? '*** (Set)' : '(Open)' ?>">
+                    <label style="font-size:0.6rem; margin-top:2px;"><input type="checkbox" name="c_rm_pass"> Remove Pass</label>
+                </div>
+
+                <div class="input-group span-2" style="margin:0;"><label>Pinned Msg</label><input type="text" name="c_pin" value="<?= htmlspecialchars($c['pinned_msg']??'') ?>"></div>
+                
+                <div class="input-group" style="margin:0;"><label>Pin Color (Hex)</label><input type="text" name="c_pin_color" placeholder="#ffffff" value="<?= htmlspecialchars($c['pin_custom_color']??'') ?>"></div>
+                <div class="input-group" style="margin:0;"><label>Pin Emoji/Label</label><input type="text" name="c_pin_emoji" placeholder="📢" value="<?= htmlspecialchars($c['pin_custom_emoji']??'') ?>"></div>
+
+                <div class="input-group" style="margin:0;">
+                    <label>Pin Style</label>
+                    <select name="c_pin_style" style="background:#000; color:#fff; border:1px solid #444; width:100%; padding:8px;">
+                        <option value="INFO" <?= ($c['pin_style']=='INFO')?'selected':'' ?>>Blue [INFO]</option>
+                        <option value="WARN" <?= ($c['pin_style']=='WARN')?'selected':'' ?>>Red [WARN]</option>
+                        <option value="CRIT" <?= ($c['pin_style']=='CRIT')?'selected':'' ?>>Purple [CRIT]</option>
+                        <option value="SUCCESS" <?= ($c['pin_style']=='SUCCESS')?'selected':'' ?>>Green [OK]</option>
+                        <option value="CUSTOM" <?= ($c['pin_style']=='CUSTOM')?'selected':'' ?>>[ CUSTOM ]</option>
+                    </select>
+                </div>
+                
+                <div class="input-group" style="margin:0;"><label>Slow Mode (s)</label><input type="number" name="c_slow" value="<?= $c['slow_mode'] ?>"></div>
+
+                <div style="display:flex; gap:10px; align-items:center; padding-bottom:10px;">
+                    <label style="color:#e06c75; font-weight:bold; cursor:pointer;">
+                        <input type="checkbox" name="c_locked" value="1" <?= $c['is_locked']?'checked':'' ?>> LOCKED
+                    </label>
+                    <button type="submit" name="update_channel" class="badge" style="background:#6a9c6a; color:#000; border:none; padding:8px 15px; cursor:pointer;">SAVE</button>
+                </div>
+            </form>
+        </div>
+        <?php endforeach; ?>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-top:30px;">
             <div style="background:#111; border:1px solid #333; padding:15px;">
                 <h3 style="color:#d19a66; font-size:0.9rem; margin-top:0;">WIPE USER HISTORY</h3>
                 <form method="POST" onsubmit="return confirm('Delete ALL messages from this user?');">
@@ -1291,33 +1386,45 @@ if ($tab === 'logs') {
             </div>
             
             <div style="background:#111; border:1px solid #333; padding:15px;">
-                <h3 style="color:#e06c75; font-size:0.9rem; margin-top:0;">NUCLEAR OPTIONS</h3>
+                <h3 style="color:#e06c75; font-size:0.9rem; margin-top:0;">DATABASE UTILS</h3>
                 <div style="display:flex; gap:10px;">
-                    <form method="POST" onsubmit="return confirm('Fix Database? Wipes chat history.');"><button type="submit" name="repair_chat_db" class="badge" style="background:#6a9c6a; color:#000; border:none; padding:8px 15px; cursor:pointer;">REPAIR DB</button></form>
+                    <form method="POST" onsubmit="return confirm('Upgrade DB to Channels? This is safe.');"><button type="submit" name="repair_chat_db" class="badge" style="background:#6a9c6a; color:#000; border:none; padding:8px 15px; cursor:pointer;">INIT/REPAIR DB</button></form>
                     <form method="POST" onsubmit="return confirm('Wipe ALL chat messages?');"><button type="submit" name="purge_chat" class="badge" style="background:#e06c75; color:#000; border:none; padding:8px 15px; cursor:pointer;">PURGE ALL</button></form>
                 </div>
             </div>
         </div>
-
+        
         <div style="margin-top:20px; padding: 20px; background: #111; border: 1px solid #333;">
             <h3 style="margin-top:0; color:#ccc; font-size:0.9rem;">SYSTEM BROADCAST</h3>
             <form method="POST">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <select name="sys_msg_type" style="background:#000; color:#fff; border:1px solid #444; padding:10px; width:150px;">
-                        <option value="INFO">BLUE INFO</option>
-                        <option value="WARNING">RED ALERT</option>
-                        <option value="SUCCESS">GREEN SUCCESS</option>
-                        <option value="CRITICAL">PURPLE CRITICAL</option>
-                        <option value="MAINT">ORANGE MAINT</option>
-                        <option value="BLANK">BLANK NOTICE</option>
+                    <select name="target_channel" style="background:#000; color:#e5c07b; border:1px solid #444; padding:10px; width:150px; font-weight:bold;">
+                        <option value="0">[ GLOBAL / ALL ]</option>
+                        <?php 
+                        try {
+                            $c_list = $pdo->query("SELECT id, name FROM chat_channels")->fetchAll();
+                            foreach($c_list as $cl) echo "<option value='{$cl['id']}'>#{$cl['name']}</option>";
+                        } catch(Exception $e){} 
+                        ?>
                     </select>
                     <input type="text" name="sys_msg_text" placeholder="Message content..." required style="flex-grow:1; background:#000; color:#fff; border:1px solid #444; padding:10px;">
                 </div>
+
                 <div style="display:flex; gap:10px; align-items:center;">
-                    <span style="font-size:0.7rem; color:#666;">CUSTOM OVERRIDE:</span>
-                    <input type="text" name="sys_custom_label" placeholder="Label (e.g. NOTICE)" style="width:140px; background:#000; border:1px solid #333; color:#fff; padding:5px; font-size:0.75rem;">
-                    <input type="text" name="sys_custom_hex" placeholder="Hex (e.g. #ff0000)" style="width:130px; background:#000; border:1px solid #333; color:#fff; padding:5px; font-size:0.75rem;">
-                    <button type="submit" name="send_sys_msg" class="btn-primary" style="width:auto; padding:5px 20px; height:32px; font-size:0.7rem;">BROADCAST</button>
+                    <select name="sys_msg_type" style="background:#000; color:#fff; border:1px solid #444; padding:5px; width:120px; font-size:0.75rem;">
+                        <option value="INFO">BLUE INFO</option>
+                        <option value="WARNING">RED ALERT</option>
+                        <option value="SUCCESS">GREEN SUCCESS</option>
+                        <option value="CRITICAL">PURPLE CRIT</option>
+                        <option value="MAINT">ORANGE MAINT</option>
+                        <option value="BLANK">BLANK / CUSTOM</option>
+                    </select>
+                    
+                    <span style="font-size:0.7rem; color:#666;">CUSTOM:</span>
+                    <input type="text" name="sys_custom_label" placeholder="Label (e.g. NOTICE)" style="width:120px; background:#000; border:1px solid #333; color:#fff; padding:5px; font-size:0.75rem;">
+                    <input type="text" name="sys_custom_hex" placeholder="Hex (e.g. #ff0000)" style="width:100px; background:#000; border:1px solid #333; color:#fff; padding:5px; font-size:0.75rem;">
+                    
+                    <button type="submit" name="send_sys_msg" class="btn-primary" style="width:auto; padding:5px 20px; height:30px; font-size:0.7rem; margin-left:auto;">TRANSMIT</button>
                 </div>
             </form>
         </div>

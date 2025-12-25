@@ -8,11 +8,96 @@ $is_guest = $_SESSION['is_guest'] ?? false;
 $username = $_SESSION['username'];
 $rank = $_SESSION['rank'] ?? 0;
 
+// 1. CHANNEL SWITCHING & SECURITY GATEWAY
+if (isset($_GET['set_channel'])) {
+    $target_cid = (int)$_GET['set_channel'];
+    $err = "";
+    
+    try {
+        $stmt_ch = $pdo->prepare("SELECT id, name, read_rank, password FROM chat_channels WHERE id = ?");
+        $stmt_ch->execute([$target_cid]);
+        $ch_data = $stmt_ch->fetch();
+
+        if (!$ch_data) { header("Location: chat.php"); exit; }
+
+        // A. Rank Check
+        if ($rank < $ch_data['read_rank']) {
+            $err = "INSUFFICIENT CLEARANCE (Rank {$ch_data['read_rank']}+ Required)";
+        }
+        
+        // B. Password Check
+        // If channel has password AND user hasn't authed for this channel yet
+        if (empty($err) && !empty($ch_data['password'])) {
+            if (!isset($_SESSION['chan_auth'][$target_cid])) {
+                // Handle Password Submission
+                if (isset($_POST['chan_pass'])) {
+                    if (password_verify($_POST['chan_pass'], $ch_data['password'])) {
+                        $_SESSION['chan_auth'][$target_cid] = true;
+                    } else {
+                        $err = "INVALID DECRYPTION KEY";
+                    }
+                } else {
+                    // Show Gatekeeper Form
+                    ?>
+                    <!DOCTYPE html>
+                    <html><head><link rel="stylesheet" href="style.css"></head>
+                    <body style="background:#0d0d0d; display:flex; align-items:center; justify-content:center; height:100vh; font-family:monospace;">
+                        <div class="login-box" style="border-color:#e06c75; max-width:400px; width:100%;">
+                            <div class="login-header" style="background:#1a0505; color:#e06c75;">SECURE FREQUENCY DETECTED</div>
+                            <form method="POST" style="padding:20px;">
+                                <p style="color:#ccc; margin-top:0;">CHANNEL: <strong>#<?= htmlspecialchars($ch_data['name']) ?></strong> is encrypted.</p>
+                                <div class="input-group">
+                                    <label>Decryption Key (Password)</label>
+                                    <input type="password" name="chan_pass" autofocus required>
+                                </div>
+                                <button type="submit" class="btn-primary" style="width:100%;">AUTHENTICATE</button>
+                                <a href="chat.php" style="display:block; text-align:center; margin-top:15px; color:#666; text-decoration:none;">[ CANCEL ]</a>
+                            </form>
+                        </div>
+                    </body></html>
+                    <?php
+                    exit;
+                }
+            }
+        }
+
+        // C. Access Granted
+        if (empty($err)) {
+            $_SESSION['active_channel'] = $target_cid;
+            header("Location: chat.php"); exit;
+        }
+
+    } catch (Exception $e) { $err = "System Error"; }
+
+    // D. Access Denied Screen
+    if ($err) {
+        die("<!DOCTYPE html><html><body style='background:#000; color:#e06c75; font-family:monospace; display:flex; height:100vh; align-items:center; justify-content:center;'>
+            <div style='border:1px solid #e06c75; padding:20px; text-align:center;'>
+                <h2 style='margin-top:0;'>ACCESS DENIED</h2>
+                <p>$err</p>
+                <a href='chat.php' style='color:#fff;'>[ RETURN ]</a>
+            </div>
+        </body></html>");
+    }
+}
+
+// Default Channel
+if (!isset($_SESSION['active_channel'])) $_SESSION['active_channel'] = 1;
+$active_cid = $_SESSION['active_channel'];
+
+// Fetch Channel Name for Display
+$active_c_name = "UNK";
+try {
+    $stmt_cn = $pdo->prepare("SELECT name FROM chat_channels WHERE id = ?");
+    $stmt_cn->execute([$active_cid]);
+    $active_c_name = $stmt_cn->fetchColumn() ?: "Public";
+} catch(Exception $e) {}
+
+
 // RE-CHECK MUTE STATUS (REAL-TIME)
 $is_muted = $_SESSION['is_muted'] ?? false;
 try {
     if ($is_guest) {
-        // Requires 'is_muted' column in guest_tokens (Created in Batch 1)
         $m_stmt = $pdo->prepare("SELECT is_muted FROM guest_tokens WHERE id = ?");
         $m_stmt->execute([$_SESSION['guest_token_id']]);
         if($m_stmt->fetchColumn()) $is_muted = true;
@@ -64,6 +149,19 @@ try {
     </style>
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?>>
+
+    <input type="checkbox" id="channels-modal-toggle" class="modal-toggle">
+    <div class="modal-overlay">
+        <div class="modal-box" style="height: 400px; max-width: 500px; border-color: #56b6c2;">
+            <div class="modal-header" style="border-color: #56b6c2;">
+                <span style="color:#56b6c2;">FREQUENCY SELECTOR</span>
+                <label for="channels-modal-toggle" class="modal-close">[ CLOSE ]</label>
+            </div>
+            <div class="modal-content">
+                <iframe src="channels_list.php" style="width:100%; height:100%; border:none;"></iframe>
+            </div>
+        </div>
+    </div>
 
     <input type="checkbox" id="invite-modal-toggle" class="modal-toggle">
     <div class="modal-overlay">
@@ -251,12 +349,21 @@ try {
                 
                 $mp_conf = json_decode($settings_map['permissions_config'] ?? '{}', true);
                 $is_chat_locked = ($settings_map['chat_locked'] ?? '0') === '1';
-                $is_muted = $_SESSION['is_muted'] ?? false; // Check mute status
+                $is_muted = $_SESSION['is_muted'] ?? false; 
                 
+                // Fetch Upload Rank (Default 5)
+                $req_upload = 5;
+                try {
+                     $urs = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='upload_min_rank'");
+                     if($r = $urs->fetch()) $req_upload = (int)$r['setting_value'];
+                } catch(Exception $e){}
+
                 $req_mod = $mp_conf['perm_view_mod_panel'] ?? 9; 
                 ?>
                 <span>OPTIONS:</span>
                 
+                <label for="channels-modal-toggle" class="opt-btn" style="color:#56b6c2; font-weight:bold;">[ #<?= htmlspecialchars($active_c_name) ?> ]</label>
+
                 <?php if (!$is_chat_locked && !$is_muted): ?>
                     <a href="help_bbcode.php" target="_blank" class="opt-btn" title="Open BBCode Manual">{bb}</a>
                 <?php endif; ?>
@@ -279,7 +386,10 @@ try {
                     <?php if ($rank >= 5): ?>
                         <label for="invite-modal-toggle" class="opt-btn opt-btn-green">[ INVITE ]</label>
                     <?php endif; ?>
-                    <label for="upload-modal-toggle" class="opt-btn" style="color:#6a9c6a; cursor:pointer;">[ UPLOAD ]</label>
+                    
+                    <?php if ($rank >= $req_upload): ?>
+                        <label for="upload-modal-toggle" class="opt-btn" style="color:#6a9c6a; cursor:pointer;">[ UPLOAD ]</label>
+                    <?php endif; ?>
                 <?php endif; ?>
                 
                 <a href="chat_input.php" target="chat_input" class="opt-btn">[ REFRESH ]</a>

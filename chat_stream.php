@@ -339,8 +339,10 @@ echo "
 <?php
 try {
     // --- INITIAL HISTORY LOAD ---
-    // LIMIT 50 recent messages
-    $stmt = $pdo->query("SELECT * FROM (SELECT * FROM chat_messages ORDER BY id DESC LIMIT 50) sub ORDER BY id ASC");
+    $cid = $_SESSION['active_channel'] ?? 1;
+    // Filter by Channel ID
+    $stmt = $pdo->prepare("SELECT * FROM (SELECT * FROM chat_messages WHERE channel_id = ? ORDER BY id DESC LIMIT 50) sub ORDER BY id ASC");
+    $stmt->execute([$cid]);
     $history = $stmt->fetchAll();
     foreach($history as $msg) {
         $last_id = $msg['id'];
@@ -373,16 +375,18 @@ try {
             $last_pin_dom_id = $last_pin_dom_id ?? null; 
 
             try {
-                $p_stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('chat_pinned_msg', 'chat_pin_style', 'chat_pin_custom_color', 'chat_pin_custom_emoji')");
-                $p_conf = [];
-                while($r = $p_stmt->fetch()) $p_conf[$r['setting_key']] = $r['setting_value'];
+                // Fetch Pin & Styles for Active Channel
+                $cid = $_SESSION['active_channel'] ?? 1;
+                $p_stmt = $pdo->prepare("SELECT pinned_msg, pin_style, pin_custom_color, pin_custom_emoji FROM chat_channels WHERE id = ?");
+                $p_stmt->execute([$cid]);
+                $chan_data = $p_stmt->fetch();
 
-                $pin_msg = trim($p_conf['chat_pinned_msg'] ?? '');
-                $pin_style = $p_conf['chat_pin_style'] ?? 'INFO';
-                $custom_color = $p_conf['chat_pin_custom_color'] ?? '#6a9c6a';
-                $custom_emoji = $p_conf['chat_pin_custom_emoji'] ?? '';
+                $pin_msg = trim($chan_data['pinned_msg'] ?? '');
+                $pin_style = $chan_data['pin_style'] ?? 'INFO';
+                $custom_color = $chan_data['pin_custom_color'] ?? '#6a9c6a'; 
+                $custom_emoji = $chan_data['pin_custom_emoji'] ?? ''; 
                 
-                $pin_hash = md5($pin_msg . $pin_style . $custom_color . $custom_emoji);
+                $pin_hash = md5($pin_msg . $pin_style . $cid); // Hash includes CID to refresh on switch
                 if ($pin_hash !== $current_pin_hash) {
                     $current_pin_hash = $pin_hash;
 
@@ -475,8 +479,9 @@ try {
         if ($check_reset < $last_id) $last_id = 0;
 
         // 3. New Messages
-        $stmt = $pdo->prepare("SELECT * FROM chat_messages WHERE id > ? ORDER BY id ASC");
-        $stmt->execute([$last_id]);
+        $cid = $_SESSION['active_channel'] ?? 1;
+        $stmt = $pdo->prepare("SELECT * FROM chat_messages WHERE id > ? AND channel_id = ? ORDER BY id ASC");
+        $stmt->execute([$last_id, $cid]);
         $new = $stmt->fetchAll();
         foreach($new as $msg) {
             $last_id = $msg['id'];

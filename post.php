@@ -33,12 +33,15 @@ $id = $_GET['id'] ?? 0;
 // Update Views (Session Locked to prevent spam)
 if (!isset($_SESSION['viewed_posts'])) $_SESSION['viewed_posts'] = [];
 
+// [FIX] Ensure we track views, but also allow basic refresh counting if session is weird
 if (!in_array($id, $_SESSION['viewed_posts'])) {
     try { 
-        // Force increment using COALESCE to handle any remaining NULLs gracefully
-        $pdo->prepare("UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id = ?")->execute([$id]); 
+        $pdo->prepare("UPDATE posts SET views = views + 1 WHERE id = ?")->execute([$id]); 
         $_SESSION['viewed_posts'][] = $id;
-    } catch(Exception $e){}
+    } catch(Exception $e) {
+        // Fallback if column is weirdly null (should be fixed by schema, but just in case)
+        $pdo->prepare("UPDATE posts SET views = 1 WHERE id = ? AND views IS NULL")->execute([$id]);
+    }
 }
 
 $stmt = $pdo->prepare("SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id = ?");
@@ -47,9 +50,26 @@ $post = $stmt->fetch();
 
 if (!$post) die("TRANSMISSION NOT FOUND.");
 
-// Check Rank Clearance (Uses $my_rank calculated above)
+// Check Rank Clearance - STYLED ERROR PAGE
 if ($post['min_rank'] > $my_rank) {
-    die("ACCESS DENIED: INSUFFICIENT CLEARANCE (LEVEL {$post['min_rank']} REQUIRED).");
+    ?>
+    <!DOCTYPE html>
+    <html><head><title>Restricted</title><link rel="stylesheet" href="style.css"></head>
+    <body style="background:#000;">
+    <div class="login-wrapper">
+        <div class="terminal-header"><span class="term-title">SYSTEM_ALERT</span></div>
+        <div style="padding:40px; text-align:center;">
+            <h1 style="color:#e06c75; font-size:1.5rem; margin-top:0;">ACCESS DENIED</h1>
+            <p style="color:#666; font-family:monospace; margin-bottom:30px;">
+                INSUFFICIENT CLEARANCE.<br>
+                LEVEL <?= $post['min_rank'] ?> SECURITY REQUIRED.
+            </p>
+            <a href="index.php" class="btn-primary" style="display:inline-block; width:auto; text-decoration:none;">RETURN TO FEED</a>
+        </div>
+    </div>
+    </body></html>
+    <?php
+    exit;
 }
 
 // --- LOGIC MOVED TO TOP (FIXES REDIRECT) ---

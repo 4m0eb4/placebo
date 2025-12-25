@@ -184,6 +184,7 @@ function parse_bbcode($text) {
         '/\[roll\](.*?)\[\/roll\]/s',
         '/\[game=(.*?)\]/s',
         '/\[image=(\d+)\]/s',
+        '/\[channel=(\d+)\]/s',
         '/\[url=(.*?)\](.*?)\[\/url\]/s',
         '/\[game=(.*?)\]/s',
         '/\[image=(\d+)\]/s',
@@ -238,6 +239,8 @@ function parse_bbcode($text) {
         '<span class="bb-roll"><span style="font-size:1.2em;">🎲</span> $1</span>',
         '<a href="dots.php?id=$1" target="_blank" style="color:#e5c07b; text-decoration:none; border:1px solid #e5c07b; padding:0 4px;">[ 🎲 JOIN GAME ]</a>',
         '<a href="image_viewer.php?id=$1" target="_blank" style="color:#56b6c2; text-decoration:none; border:1px solid #56b6c2; padding:0 4px;">[ 🖼️ VIEW DATA ]</a>',
+        // Channel Link
+        '<a href="chat.php?set_channel=$1" target="_top" style="color:#e5c07b; text-decoration:none; border-bottom:1px dashed #e5c07b; font-weight:bold;">[ 📡 TUNE: FREQ $1 ]</a>',
         '<a href="$1" target="_blank" style="color:#6a9c6a; text-decoration:underline; font-weight:bold;">$2</a>',
         '<a href="dots.php?id=$1" target="_blank" style="color:#e5c07b; text-decoration:none; border:1px solid #e5c07b; padding:0 4px;">[ 🎲 JOIN GAME ]</a>',
         '<a href="image_viewer.php?id=$1" target="_blank" style="color:#56b6c2; text-decoration:none; border:1px solid #56b6c2; padding:0 4px;">[ 🖼️ VIEW DATA ]</a>',
