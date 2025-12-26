@@ -97,25 +97,22 @@ foreach($raw_links as $l) {
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="display: block;">
 
-<div class="main-container" style="width: 800px; margin: 0 auto;">
-    <div class="nav-bar" style="background: #161616; border-bottom: 1px solid #333; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;">
-        <div style="display:flex; align-items:center; gap: 20px;">
-            <div>
-                <a href="index.php" class="term-logo">Placebo</a>
-                <span style="color:#333; font-size:0.75rem; font-family:monospace; margin-left:5px;">// Uplinks</span>
-            </div>
-            <div style="font-size: 0.75rem; font-family: monospace;">
-                <a href="chat.php" style="color:#888; margin-right:10px; text-decoration:none;">[ CHAT ]</a>
-                <a href="index.php" style="color:#888; text-decoration:none;">[ HOME ]</a>
-            </div>
+<div class="main-container" style="width: 800px; margin: 0 auto; padding-top:20px;">
+    
+    <div style="margin-bottom: 20px; border-bottom:1px solid #333; padding-bottom:10px; display:flex; justify-content:space-between; align-items:flex-end;">
+        <div>
+            <div class="term-title">UPLINKS // DIRECTORY</div>
+            <div style="font-size:0.7rem; color:#444; margin-top:5px;">VERIFIED SIGNALS</div>
         </div>
-        <div class="nav-links" style="font-size:0.75rem; font-family:monospace;">
-             <a href="settings.php">[ SETTINGS ]</a>
-             <a href="logout.php">LOGOUT</a>
+        <div style="font-family:monospace; font-size:0.8rem;">
+            <a href="index.php" style="color:#666; text-decoration:none; margin-right:10px;">[ HOME ]</a>
+            <a href="chat.php" style="color:#666; text-decoration:none; margin-right:10px;">[ CHAT ]</a>
+            <a href="gallery.php" style="color:#666; text-decoration:none; margin-right:10px;">[ DATA ]</a>
+            <a href="links.php" style="color:#6a9c6a; text-decoration:none;">[ LINKS ]</a>
         </div>
     </div>
     
-    <div style="background:#0f0f0f; border-bottom:1px solid #333; padding:10px 20px;">
+    <div style="background:#0f0f0f; border-bottom:1px solid #333; padding:10px 0;">
         <form method="GET" style="display:flex; gap:10px;">
             <?php if(isset($_GET['cat'])): ?><input type="hidden" name="cat" value="<?= htmlspecialchars($_GET['cat']) ?>"><?php endif; ?>
             <input type="text" name="q" placeholder="Search Uplinks..." value="<?= htmlspecialchars($_GET['q']??'') ?>" style="background:#000; border:1px solid #333; color:#fff; padding:5px 10px; font-family:monospace; font-size:0.75rem; width:200px;">

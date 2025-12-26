@@ -340,13 +340,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         .reply-bar a { color: #e06c75; text-decoration: none; }
 
-        form { 
+form { 
             flex: 1; 
             display: flex; 
             width: 100%; 
             align-items: center; 
             padding: 5px; 
-            padding-left: 45px;
+            padding-left: 5px;
             box-sizing: border-box; 
         }
         input { flex: 1; background: #111; border: 1px solid #333; color: #eee; padding: 8px; font-family: inherit; outline: none; height: 30px; box-sizing: border-box; }
@@ -379,7 +379,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     <?php else: ?>
         
-        <input type="checkbox" id="helper-toggle" class="helper-toggle">
+        <input type="checkbox" id="helper-toggle" class="helper-toggle" style="display:none;">
         <div class="helper-drawer">
             <div style="font-weight:bold; color:#6a9c6a; padding-bottom:5px; border-bottom:1px solid #333; margin-bottom:5px;">// SIGNAL CODES</div>
             
@@ -391,7 +391,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
 
         <form method="POST" autocomplete="off">
-            <label for="helper-toggle" class="helper-btn" title="View Codes">?</label>
+            <label for="helper-toggle" class="helper-btn" title="View Codes">[?]</label>
 
             <?php if($is_reply): ?>
                 <input type="hidden" name="quote_data" value="<?= "\n[quote=" . htmlspecialchars($reply_user) . "]" . htmlspecialchars($reply_text) . "[/quote]" ?>">

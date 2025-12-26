@@ -168,40 +168,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // --- HANDLE BACKGROUND ---
 
-            // --- HANDLE BACKGROUND ---
-            $bg_path = $_POST['saved_bg_url'] ?? ''; 
-        
-            if (isset($_POST['remove_bg'])) {
-                $bg_path = ''; 
-            }
+            // --- HANDLE BACKGROUNDS (Index & Chat) ---
+            $upload_dir = __DIR__ . '/uploads/image/';
+            if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
 
-            if (isset($_FILES['bg_upload']) && $_FILES['bg_upload']['error'] === UPLOAD_ERR_OK) {
-                $tmp = $_FILES['bg_upload']['tmp_name'];
-                if (class_exists('finfo')) {
-                    $finfo = new finfo(FILEINFO_MIME_TYPE);
-                    $mime = $finfo->file($tmp);
-                } else {
-                    $mime = $_FILES['bg_upload']['type'];
-                }
-                $allowed_mimes = ['image/jpeg'=>'jpg', 'image/png'=>'png', 'image/gif'=>'gif', 'image/webp'=>'webp'];
+            // Helper for processing uploads
+            // We pass &$msg by reference to report errors back to the user
+            $process_bg = function($file_key, $del_key, $current_val) use ($upload_dir, &$msg) {
+                $final_path = $current_val;
+                
+                // 1. Check Removal
+                if (isset($_POST[$del_key])) return '';
 
-                if (array_key_exists($mime, $allowed_mimes)) {
-                    $ext = $allowed_mimes[$mime];
-                    $upload_dir = __DIR__ . '/uploads/';
-                    if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+                // 2. Check New Upload
+                if (isset($_FILES[$file_key])) {
+                    $err = $_FILES[$file_key]['error'];
                     
-                    $new_filename = 'bg_' . bin2hex(random_bytes(8)) . '.' . $ext;
-                    $target_file = $upload_dir . $new_filename;
-                    
-                    if (move_uploaded_file($tmp, $target_file)) {
-                        $bg_path = "uploads/" . $new_filename;
-                    } else {
-                        $msg = "Error: File move failed.";
+                    if ($err === UPLOAD_ERR_OK) {
+                        $tmp = $_FILES[$file_key]['tmp_name'];
+                        // MIME Check
+                        if (class_exists('finfo')) {
+                            $finfo = new finfo(FILEINFO_MIME_TYPE);
+                            $mime = $finfo->file($tmp);
+                        } else {
+                            $mime = $_FILES[$file_key]['type'];
+                        }
+                        $allowed = ['image/jpeg'=>'jpg', 'image/png'=>'png', 'image/gif'=>'gif', 'image/webp'=>'webp'];
+                        
+                        if (isset($allowed[$mime])) {
+                            $ext = $allowed[$mime];
+                            $new_name = bin2hex(random_bytes(16)) . '.' . $ext;
+                            if (move_uploaded_file($tmp, $upload_dir . $new_name)) {
+                                return 'uploads/image/' . $new_name;
+                            } else {
+                                $msg .= " [Error: Failed to move file] ";
+                            }
+                        } else {
+                            $msg .= " [Error: Invalid format $mime] ";
+                        }
+                    } elseif ($err !== UPLOAD_ERR_NO_FILE) {
+                        // Report PHP Upload Errors
+                        $php_errs = [
+                            1 => 'File exceeds upload_max_filesize (Server Limit)',
+                            2 => 'File exceeds MAX_FILE_SIZE (Form Limit)',
+                            3 => 'File only partially uploaded',
+                            4 => 'No file uploaded', 
+                            6 => 'Missing temporary folder',
+                            7 => 'Failed to write file to disk'
+                        ];
+                        $e_txt = $php_errs[$err] ?? 'Unknown Error';
+                        $msg .= " [Upload Failed: $e_txt] ";
                     }
-                } else {
-                    $msg = "Error: Invalid Image Type ($mime).";
                 }
-            }
+                return $final_path;
+            };
+
+            $site_bg_path = $process_bg('index_bg_file', 'del_index_bg', $_POST['saved_index_bg'] ?? '');
+            $chat_bg_path = $process_bg('chat_bg_file', 'del_chat_bg', $_POST['saved_chat_bg'] ?? '');
 
             $upd = [
                 'captcha_grid_w' => $_POST['grid_w'],
@@ -216,10 +239,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'chat_emoji_presets' => $_POST['emoji_presets'],
                 'palette_json' => $_POST['palette'],
                 'site_theme' => $_POST['site_theme'],
-                'site_bg_url' => $bg_path,
+                'site_bg_url' => $site_bg_path,
+                'chat_bg_url' => $chat_bg_path,
+                'index_opacity' => $_POST['index_opacity'], 
+                'stream_opacity' => $_POST['stream_opacity'],
+                'bg_fit_style' => $_POST['bg_fit_style'],
+                'bg_position' => $_POST['bg_position'],
                 'max_chat_history' => $_POST['max_history'] ?? 150,
                 'show_online_nodes' => $_POST['show_nodes'] ?? '1',
-                // [MOVED] Rank settings moved to Perms tab
                 'registration_enabled' => $_POST['reg_enabled'] ?? '1',
                 'registration_msg' => $_POST['reg_msg'],
                 'allow_op_mod' => isset($_POST['allow_op_mod']) ? '1' : '0'
@@ -936,15 +963,53 @@ if ($tab === 'logs') {
                         <option value="0" <?= ($settings['show_online_nodes']??'1')=='0' ? 'selected' : '' ?>>NO</option>
                     </select>
                 </div>
-<div class="input-group span-full">
-                    <label>Background Image (Upload)</label>
-                    <input type="hidden" name="saved_bg_url" value="<?= htmlspecialchars($settings['site_bg_url']??'') ?>">
-                    <input type="file" name="bg_upload" style="background:#111; border:1px solid #333; padding:5px; width:100%;">
+<div class="input-group span-2">
+                    <label>Login/Index Background</label>
+                    <input type="hidden" name="saved_index_bg" value="<?= htmlspecialchars($settings['site_bg_url']??'') ?>">
+                    <input type="file" name="index_bg_file" style="background:#111; border:1px solid #333; padding:5px; width:100%;">
                     <?php if(!empty($settings['site_bg_url'])): ?>
-                        <div style="font-size:0.7rem; margin-top:5px;">
-                            <label><input type="checkbox" name="remove_bg"> Remove: <?= htmlspecialchars($settings['site_bg_url']) ?></label>
+                        <div style="font-size:0.7rem; margin-top:5px; color:#666;">
+                            <label><input type="checkbox" name="del_index_bg"> Remove Current</label>
                         </div>
                     <?php endif; ?>
+                </div>
+
+                <div class="input-group span-2">
+                    <label>Chat Stream Background</label>
+                    <input type="hidden" name="saved_chat_bg" value="<?= htmlspecialchars($settings['chat_bg_url']??'') ?>">
+                    <input type="file" name="chat_bg_file" style="background:#111; border:1px solid #333; padding:5px; width:100%;">
+                    <?php if(!empty($settings['chat_bg_url'])): ?>
+                        <div style="font-size:0.7rem; margin-top:5px; color:#666;">
+                            <label><input type="checkbox" name="del_chat_bg"> Remove Current</label>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="input-group">
+                    <label>Login/Index Opacity %</label>
+                    <input type="number" name="index_opacity" value="<?= $settings['index_opacity'] ?? 30 ?>" min="0" max="100" placeholder="0-100">
+                </div>
+                <div class="input-group">
+                    <label>Chat Stream Opacity %</label>
+                    <input type="number" name="stream_opacity" value="<?= $settings['stream_opacity'] ?? 30 ?>" min="0" max="100" placeholder="0-100">
+                </div>
+                <div class="input-group">
+                    <label>Fit Strategy</label>
+                    <select name="bg_fit_style" style="background:#111; color:#fff; border:1px solid #333; padding:8px; width:100%;">
+                        <option value="cover" <?= ($settings['bg_fit_style']??'cover')=='cover'?'selected':'' ?>>Crop to Fill (Standard)</option>
+                        <option value="contain" <?= ($settings['bg_fit_style']??'')=='contain'?'selected':'' ?>>Fit Whole Image (Bars)</option>
+                        <option value="100% 100%" <?= ($settings['bg_fit_style']??'')=='100% 100%'?'selected':'' ?>>Stretch to Fill</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Image Focus (Alignment)</label>
+                    <select name="bg_position" style="background:#111; color:#fff; border:1px solid #333; padding:8px; width:100%;">
+                        <option value="center center" <?= ($settings['bg_position']??'center center')=='center center'?'selected':'' ?>>Center (Default)</option>
+                        <option value="top center" <?= ($settings['bg_position']??'')=='top center'?'selected':'' ?>>Top (Heads/Sky)</option>
+                        <option value="bottom center" <?= ($settings['bg_position']??'')=='bottom center'?'selected':'' ?>>Bottom (Feet/Floor)</option>
+                        <option value="center left" <?= ($settings['bg_position']??'')=='center left'?'selected':'' ?>>Left Side</option>
+                        <option value="center right" <?= ($settings['bg_position']??'')=='center right'?'selected':'' ?>>Right Side</option>
+                    </select>
                 </div>
             </div>
 

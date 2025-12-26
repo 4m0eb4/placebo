@@ -119,15 +119,43 @@ $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
     }
 
     // --- 4. THEME LOADER ---
-    $theme_cls = ''; $bg_style = '';
+    $theme_cls = ''; $bg_style = ''; $stream_bg_style = '';
     try {
-        $stmt_t = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('site_theme', 'site_bg_url')");
+        // [UPDATED] Added bg_position to fetch list
+        $stmt_t = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('site_theme', 'site_bg_url', 'chat_bg_url', 'index_opacity', 'stream_opacity', 'bg_fit_style', 'bg_position')");
         $t_conf = $stmt_t->fetchAll(PDO::FETCH_KEY_PAIR);
+        
         if (!empty($t_conf['site_theme'])) $theme_cls = $t_conf['site_theme'];
+        
+        // Helper: Calculate Overlay Alpha (100 Input = 0% Black Overlay)
+        $get_overlay = function($key) use ($t_conf) {
+            $val = isset($t_conf[$key]) ? (int)$t_conf[$key] : 85; 
+            $dec = 1 - ($val / 100);
+            if ($dec < 0) $dec = 0;
+            return "linear-gradient(rgba(13, 13, 13, $dec), rgba(13, 13, 13, $dec))";
+        };
+
+        $idx_overlay = $get_overlay('index_opacity');
+        $str_overlay = $get_overlay('stream_opacity');
+        
+        // [UPDATED] Logic for Fit and Position
+        $fit = !empty($t_conf['bg_fit_style']) ? $t_conf['bg_fit_style'] : 'cover';
+        $pos = !empty($t_conf['bg_position']) ? $t_conf['bg_position'] : 'center center';
+
+        // Main BG
         if (!empty($t_conf['site_bg_url'])) {
             $safe_url = htmlspecialchars($t_conf['site_bg_url']);
-            $bg_style = "style='background-image: url(\"$safe_url\");'";
+            $bg_style = "style='background-image: $idx_overlay, url(\"$safe_url\"); background-blend-mode: normal; background-attachment: fixed; background-position: $pos; background-repeat: no-repeat; background-size: $fit;'";
         }
+
+        // Stream BG
+        if (!empty($t_conf['chat_bg_url'])) {
+            $safe_c_url = htmlspecialchars($t_conf['chat_bg_url']);
+            $stream_bg_style = "style='background-image: $str_overlay, url(\"$safe_c_url\"); background-attachment: fixed; background-position: $pos; background-repeat: no-repeat; background-blend-mode: normal; background-size: $fit;'";
+        } else {
+            $stream_bg_style = "style='background: transparent;'";
+        }
+
     } catch (Exception $e) { }
 
     // [SECURITY] Traffic Analysis Resistance

@@ -377,7 +377,7 @@ try {
                 ?>
 
                 <?php if ($rank >= $req_dir_view): ?>
-                    <label for="directory-modal-toggle" class="opt-btn" style="color:#d19a66;">[ DIRECTORY ]</label>
+                    <label for="directory-modal-toggle" class="opt-btn" style="color:#d19a66;">[ All Users ]</label>
                 <?php endif; ?>
                 
                 
@@ -394,7 +394,7 @@ try {
                 
                 <a href="chat_input.php" target="chat_input" class="opt-btn">[ REFRESH ]</a>
 
-                <span style="margin-left:auto; color:#333;">SECURE_V2</span>
+                <span style="margin-left:auto; color:#333;">p.l.a.c.e.b.o.</span>
             </div>
 
             <div class="status-buffer"></div>

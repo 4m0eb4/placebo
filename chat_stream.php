@@ -319,7 +319,7 @@ echo "
         body { font-size: 0.75rem; } 
         
         .msg-row { 
-            width: 100%; padding: 2px 0; border-bottom: 1px solid #111; 
+            width: 100%; padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); 
             display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0; 
         }
         .sys-msg { padding: 5px; margin: 2px 0; font-size: 0.7rem; }
@@ -348,7 +348,7 @@ echo "
         .react-presets a:hover { filter: grayscale(0%); transform: scale(1.2); }
     </style>
 </head>
-<body>
+<body class="<?= $theme_cls ?? '' ?>" <?= $stream_bg_style ?? '' ?>>
 <?php
 try {
     // --- INITIAL HISTORY LOAD ---
