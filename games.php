@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_size'])) {
 // 2. JOIN GAME
 if (isset($_GET['join'])) {
     $uid = $_GET['join'];
-    usleep(200000); 
+    // usleep(200000); // Removed for speed
     // Fix: Allow join if P2 is NULL OR 0.
     $stmt = $pdo->prepare("UPDATE games SET p2_id = ?, p2_name = ?, status = 'active', last_move = NOW() WHERE public_id = ? AND (p2_id IS NULL OR p2_id = 0) AND p1_id != ?");
     $stmt->execute([$my_id, $my_name, $uid, $my_id]);

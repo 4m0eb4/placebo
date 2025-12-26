@@ -9,7 +9,6 @@ if (!isset($_SESSION['fully_authenticated'])) {
 } else {
     // Check Guest Status
     if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
-        // [FIX] Fetch Status + Penalties (Mute/Slow)
         $stmt = $pdo->prepare("SELECT status, is_muted, slow_mode_override FROM guest_tokens WHERE id = ?");
         $stmt->execute([$_SESSION['guest_token_id'] ?? 0]);
         $g = $stmt->fetch();
@@ -17,7 +16,6 @@ if (!isset($_SESSION['fully_authenticated'])) {
         if (!$g || $g['status'] !== 'active') {
             $kill = true;
         } else {
-            // Apply Guest Penalties to Session
             if (!empty($g['is_muted'])) $_SESSION['is_muted'] = true; else unset($_SESSION['is_muted']);
             if (!empty($g['slow_mode_override']) && $g['slow_mode_override'] > 0) $_SESSION['user_slow'] = (int)$g['slow_mode_override']; else unset($_SESSION['user_slow']);
         }
@@ -30,7 +28,7 @@ if (!isset($_SESSION['fully_authenticated'])) {
         if ($u) {
             if ($u['is_banned'] == 1 || $u['force_logout'] == 1) {
                 $kill = true;
-                $ban_reason = $u['ban_reason'] ?? 'Connection Reset.'; // Capture reason
+                $ban_reason = $u['ban_reason'] ?? 'Connection Reset.';
             }
             if (isset($u['is_muted']) && $u['is_muted'] == 1) $_SESSION['is_muted'] = true; else unset($_SESSION['is_muted']);
             if (isset($u['slow_mode_override']) && $u['slow_mode_override'] > 0) $_SESSION['user_slow'] = (int)$u['slow_mode_override']; else unset($_SESSION['user_slow']);
@@ -40,7 +38,6 @@ if (!isset($_SESSION['fully_authenticated'])) {
 
 // IF DEAD: Immediate Halt
 if ($kill) {
-    // Standardized Kill Screen (Matches Stream)
     echo "<style>html, body { background: #000 !important; overflow:hidden; display:flex; align-items:center; justify-content:center; height:100%; margin:0; } form, .info-bar, .reply-bar { display: none !important; }</style>";
     echo "<div style='text-align:center; font-family:monospace;'>
            <h1 style='color:#e06c75; margin:0 0 10px 0; font-size:1rem; letter-spacing:2px;'>SIGNAL LOST</h1>
@@ -71,17 +68,15 @@ $c_stmt = $pdo->prepare("SELECT is_locked, slow_mode, write_rank FROM chat_chann
 $c_stmt->execute([$active_chan]);
 $chan_conf = $c_stmt->fetch();
 
-// Fallback to Global Defaults if channel invalid
 if (!$chan_conf) { $chan_conf = ['is_locked'=>0, 'slow_mode'=>0, 'write_rank'=>1]; }
 
 $is_locked = ($chan_conf['is_locked'] == 1);
-$lock_req  = 9; // Hardcoded Admin Override for Locks
+$lock_req  = 9; 
 $slow_sec  = (int)$chan_conf['slow_mode'];
 $write_req = (int)$chan_conf['write_rank'];
 
 $my_rank   = $_SESSION['rank'] ?? 1;
 
-// Rank Check for Writing
 if ($my_rank < $write_req) {
     echo "<div style='color:#e06c75; font-family:monospace; padding:10px; font-size:0.8rem;'>[READ ONLY FREQUENCY]</div>";
     exit;
@@ -90,36 +85,33 @@ if ($my_rank < $write_req) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 0. ENFORCE LOCK
     if ($is_locked && $my_rank < $lock_req) {
-        // Redirect to self to show the HTML "LOCKED" banner defined below
         header("Location: chat_input.php"); 
         exit;
     }
 
-    // 0.5 ENFORCE SLOW MODE (Global OR User Override)
+    // 0.5 ENFORCE SLOW MODE
     $actual_slow = $_SESSION['user_slow'] ?? $slow_sec;
     
     if ($actual_slow > 0 && $my_rank < 9) {
-        // [FIX] Use Username for check (Safe for Guests & Users) to track specific identity
         $l_stmt = $pdo->prepare("SELECT created_at FROM chat_messages WHERE username = ? ORDER BY id DESC LIMIT 1");
         $l_stmt->execute([$_SESSION['username']]);
         if ($last_time = $l_stmt->fetchColumn()) {
             $diff = time() - strtotime($last_time);
-            if ($diff < $actual_slow) { // [FIX] Compare against specific override ($actual_slow), not global default
-                // Too fast
+            if ($diff < $actual_slow) { 
                  header("Location: chat_input.php?error=slow"); exit;
             }
         }
     }
 
     $msg = trim($_POST['message'] ?? '');
-    $msg = trim($_POST['message'] ?? '');
     
     // Auto-inject quote
     if (!empty($_POST['quote_data'])) {
         $msg = $msg . $_POST['quote_data'];
     }
-if (!empty($msg)) {
-// 3.5 COMMAND INTERCEPT (Game & Action Logic)
+
+    if (!empty($msg)) {
+        // 3.5 COMMAND INTERCEPT
         if (str_starts_with($msg, '/')) {
             // /me Action
             if (preg_match('#^/me\s+(.+)$#is', $msg, $m)) {
@@ -153,35 +145,83 @@ if (!empty($msg)) {
             // /reverse [text]
             elseif (preg_match('#^/reverse\s+(.+)$#i', $msg, $m)) {
                 $rev = strrev(trim($m[1]));
-                $msg = "&#8238;" . htmlspecialchars($rev); // RTL Override for visual reverse
+                $msg = "&#8238;" . htmlspecialchars($rev);
             }
-// /whisper <user> <msg> (INLINE VERSION)
+// /whisper <user> <msg> (FIXED & TYPED)
             elseif (preg_match('#^/whisper\s+"?([^"\s]+)"?\s+(.+)$#is', $msg, $m)) {
                 $t_user = trim($m[1]);
                 $t_msg = trim($m[2]);
-                $target_id = null;
+                $target_id = 0;
+                $t_type = '';
 
-                // Find Target (User or Guest)
-                $stmt_u = $pdo->prepare("SELECT id FROM users WHERE username = ? UNION SELECT id FROM guest_tokens WHERE guest_username = ? AND status='active'");
-                $stmt_u->execute([$t_user, $t_user]);
-                $target_id = $stmt_u->fetchColumn();
-
-                if ($target_id) {
+                // 1. Check Registered Users (Uses 'username' column)
+                $stmt_u = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+                $stmt_u->execute([$t_user]);
+                $uid = $stmt_u->fetchColumn();
+                
+                if ($uid) {
+                    $target_id = (int)$uid;
                     $t_type = 'user';
-                    // Check if it was actually a guest we found
-                    $chk_g = $pdo->prepare("SELECT id FROM guest_tokens WHERE guest_username = ? AND status='active'");
-                    $chk_g->execute([$t_user]);
-                    if($chk_g->fetchColumn()) $t_type = 'guest';
+                } else {
+// 2. Check Active Guests (Uses 'guest_username' column)
+                    // [FIX] ORDER BY id DESC ensures we get the LATEST session, not an old/stale one
+                    $stmt_g = $pdo->prepare("SELECT id FROM guest_tokens WHERE guest_username = ? AND status='active' ORDER BY id DESC LIMIT 1");
+                    $stmt_g->execute([$t_user]);
+                    $gid = $stmt_g->fetchColumn();
+                    
+                    if ($gid) {
+                        $target_id = (int)$gid;
+                        $t_type = 'guest';
+                    }
+                }
 
-                    $color = (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) ? ($_SESSION['guest_color'] ?? '#888888') : '#888888';
-                    if (!isset($_SESSION['is_guest'])) {
+                if ($target_id > 0 && !empty($t_type)) {
+                    $color = '#888888';
+                    if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+                        $color = $_SESSION['guest_color'] ?? '#888888';
+                    } elseif (isset($_SESSION['user_id'])) {
                         $stmt_c = $pdo->prepare("SELECT chat_color FROM users WHERE id = ?");
                         $stmt_c->execute([$_SESSION['user_id']]);
                         $color = $stmt_c->fetchColumn() ?: '#888888';
                     }
 
-                    $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, target_id, target_type, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, ?, 'whisper')");
-                    $stmt->execute([$_SESSION['user_id'] ?? $_SESSION['guest_token_id'], $target_id, $t_type, $_SESSION['username'], $t_msg, $_SESSION['rank'] ?? 0, $color]);
+                    $sender_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+                    $sender_rank = (int)($_SESSION['rank'] ?? 0);
+
+                    try {
+                        $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, target_id, target_type, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, ?, 'whisper')");
+                        $stmt->execute([$sender_id, $target_id, $t_type, $_SESSION['username'], $t_msg, $sender_rank, $color]);
+                    } catch (PDOException $e) {
+                        header("Location: chat_input.php?error=db"); exit;
+                    }
+                }
+                header("Location: chat_input.php"); exit;
+            }
+
+                // Only proceed if a valid target was found
+                if ($target_id > 0 && !empty($t_type)) {
+                    // Determine Sender Color
+                    $color = '#888888';
+                    if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
+                        $color = $_SESSION['guest_color'] ?? '#888888';
+                    } elseif (isset($_SESSION['user_id'])) {
+                        $stmt_c = $pdo->prepare("SELECT chat_color FROM users WHERE id = ?");
+                        $stmt_c->execute([$_SESSION['user_id']]);
+                        $color = $stmt_c->fetchColumn() ?: '#888888';
+                    }
+
+                    // FORCE SENDER ID TO 0 FOR GUESTS
+                    // Prevents "Foreign Key Constraint" crashes if 'user_id' links to 'users' table
+                    $sender_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
+                    $sender_rank = isset($_SESSION['rank']) ? (int)$_SESSION['rank'] : 0;
+
+                    try {
+                        $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, target_id, target_type, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, ?, 'whisper')");
+                        $stmt->execute([$sender_id, $target_id, $t_type, $_SESSION['username'], $t_msg, $sender_rank, $color]);
+                    } catch (PDOException $e) {
+                        // Fail silently or redirect with error to avoid 500 page
+                        header("Location: chat_input.php?error=whisper_failed"); exit;
+                    }
                 }
                 header("Location: chat_input.php"); exit;
             }
@@ -201,25 +241,17 @@ if (!empty($msg)) {
         $msg = parse_emojis($msg);
         
         // 3. LINK INTERCEPT
-        // Catches http/https links AND raw .onion addresses (V2/V3).
-        // BYPASS: Admins (Rank 9+) skip this and post directly.
         $is_admin = (isset($_SESSION['rank']) && $_SESSION['rank'] >= 9);
         
         if (!$is_admin && preg_match('/(https?:\/\/[^\s]+|\b[a-z2-7]{56}(\.onion)?\b|\b[a-z2-7]{16}(\.onion)?\b)/i', $msg, $matches)) {
             $url = $matches[0];
-            
-            if (strpos($url, 'http') !== 0) {
-                $url = 'http://' . $url;
-            }
+            if (strpos($url, 'http') !== 0) $url = 'http://' . $url;
 
             $banned = false;
-            
             $p_stmt = $pdo->query("SELECT pattern FROM banned_patterns");
             while($p = $p_stmt->fetch()) {
                 if (stripos($url, $p['pattern']) !== false) $banned = true;
             }
-            
-            // REMOVED: History check. Banned Patterns list is now the SINGLE source of truth.
             
             if ($banned) {
                  header("Location: chat_input.php?status=banned_blocked"); exit;
@@ -239,31 +271,27 @@ if (!empty($msg)) {
             $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, channel_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, 'normal')");
             $stmt->execute([$_SESSION['user_id'] ?? 0, $active_chan, $_SESSION['username'], $msg, $_SESSION['rank'] ?? 0, $color]);
             
-            // --- AUTO PRUNE (Per Channel) ---
-            $limit_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'max_chat_history'");
-            $limit = (int)($limit_stmt->fetchColumn() ?: 150);
-            
-            $cnt = $pdo->query("SELECT COUNT(*) FROM chat_messages")->fetchColumn();
-            // Prune if total DB size gets too large (Global Prune to keep DB small)
-            if ($cnt > ($limit * 2)) {
-                 $pdo->exec("DELETE FROM chat_messages WHERE id <= (
+            // --- AUTO PRUNE (Probabilistic: 1 in 50 Chance) ---
+            if (random_int(1, 50) === 1) {
+                $limit_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'max_chat_history'");
+                $limit = (int)($limit_stmt->fetchColumn() ?: 150);
+                
+                $pdo->exec("DELETE FROM chat_messages WHERE id <= (
                     SELECT id FROM (SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1 OFFSET $limit) tmp
                 )");
-                // Signal Purge is aggressive but keeps it clean
                 $pdo->prepare("INSERT INTO chat_signals (signal_type) VALUES ('PURGE')")->execute();
             }
         } catch (Exception $e) { }
         
         header("Location: chat_input.php"); exit;
     }
-}
+
 ?>
 <!DOCTYPE html>
 <html>
 <head>
     <link rel="stylesheet" href="style.css">
     <style>
-        /* FLEXBOX LAYOUT: Ensures Notification Bar pushes the Form down naturally */
         html, body { 
             background: #0d0d0d; margin: 0; padding: 0; height: 100%; width: 100%;
             overflow: hidden; font-family: monospace; 
@@ -307,17 +335,13 @@ if (!empty($msg)) {
         }
         .reply-bar a { color: #e06c75; text-decoration: none; }
 
-        /* Form fills remaining space */
-        .info-bar a { color: #fff; text-decoration: none; font-weight: bold; }
-
-        /* Form fills remaining space */
         form { 
             flex: 1; 
             display: flex; 
             width: 100%; 
             align-items: center; 
             padding: 5px; 
-            padding-left: 45px; /* CRITICAL: Reserve space for the overlay button */
+            padding-left: 45px;
             box-sizing: border-box; 
         }
         input { flex: 1; background: #111; border: 1px solid #333; color: #eee; padding: 8px; font-family: inherit; outline: none; height: 30px; box-sizing: border-box; }

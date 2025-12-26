@@ -1,14 +1,11 @@
 <?php
-// dots_stream.php - STREAMING VERSION (No-JS)
-// Prevents flickering and server spam by holding connection open
-@ini_set('zlib.output_compression', 0);
-@ini_set('implicit_flush', 1);
-while (ob_get_level()) ob_end_clean();
-set_time_limit(0);
-
-header('X-Accel-Buffering: no');
+// dots_stream.php - REFRESH VERSION (No-JS Optimized)
+// Uses Meta-Refresh to prevent PHP Worker exhaustion
+// dots_stream.php - MICRO-STREAM VERSION (Middle Ground)
+// Streams for 3 seconds then reloads. Reduces flicker, safe for server.
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Refresh: 3.5; url=dots_stream.php?id=' . ($_GET['id'] ?? '')); // Reload after stream ends
 
 session_start();
 require 'db_config.php';
@@ -139,6 +136,7 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
 <!DOCTYPE html>
 <html>
 <head>
+    <style>html, body { background: #0d0d0d !important; }</style>
     <link rel="stylesheet" href="style.css">
     <style>
         html, body { 
@@ -230,35 +228,42 @@ function render_game_frame($gid, $colors, $box_colors, $dom_id, $prev_dom_id = n
     <iframe name="game_hidden_frame" style="display:none;"></iframe>
 
     <?php
+    // MICRO-STREAM LOGIC
+    // Run for ~3 seconds (6 cycles * 0.5s) then exit to allow Refresh
+    $max_cycles = 6;
+    $cycle = 0;
     $last_dom_id = null;
+    $last_move_time = null;
     $last_chk_status = '';
 
-    while (true) {
-        $heartbeat++;
-        
+    while ($cycle < $max_cycles) {
+        // Check DB
         $chk = $pdo->prepare("SELECT last_move, status FROM games WHERE public_id = ?");
         $chk->execute([$gid]);
         $state = $chk->fetch();
+
         $current_last_move = $state['last_move'] ?? '';
         $current_status = $state['status'] ?? '';
 
+        // If State Changed (or first run), Render Frame
         if ($current_last_move !== $last_move_time || $current_status !== $last_chk_status || $last_move_time === null) {
-            $dom_id = "frame_" . time() . "_" . rand(1000,9999);
+            $dom_id = "frame_" . time() . "_" . $cycle;
             
-            $last_move_time = render_game_frame($gid, $colors, $box_colors, $dom_id, $last_dom_id);
+            // Render and update trackers
+            render_game_frame($gid, $colors, $box_colors, $dom_id, $last_dom_id);
+            $last_move_time = $current_last_move;
             $last_chk_status = $current_status;
             $last_dom_id = $dom_id;
             
+            // Push to browser immediately
             echo " "; flush();
         }
-
-        // Keep connection alive
-        if ($heartbeat % 15 === 0) { echo ""; flush(); }
         
-        // Break if connection lost
+        // If connection cut by user, stop script
         if (connection_aborted()) break;
-        
-        usleep(500000); // 0.5s check
+
+        usleep(500000); // Wait 0.5s
+        $cycle++;
     }
     ?>
 </body>

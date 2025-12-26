@@ -1,37 +1,24 @@
 <?php
+// db_whisper_patch.php
 require 'db_config.php';
 
-echo "<h1>Starting Database Repair...</h1>";
-
 try {
-    // 1. Add Missing PIN columns to Chat Channels
-    // We use silent execution so it doesn't crash if they already exist
-    echo "Attempting to add 'pin_custom_color' column...<br>";
+    echo "Applying Whisper Columns Patch...<br>";
+    
+    // Add target_id if missing
     try {
-        $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_color VARCHAR(20) DEFAULT NULL");
-        echo "<span style='color:green'> - Added pin_custom_color</span><br>";
-    } catch (Exception $e) { echo " - Column likely exists (Skipped)<br>"; }
+        $pdo->exec("ALTER TABLE chat_messages ADD COLUMN target_id INT DEFAULT 0");
+        echo "[OK] Added 'target_id' column.<br>";
+    } catch (Exception $e) { echo "[SKIP] 'target_id' likely exists.<br>"; }
 
-    echo "Attempting to add 'pin_custom_emoji' column...<br>";
+    // Add target_type if missing
     try {
-        $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_emoji VARCHAR(20) DEFAULT NULL");
-        echo "<span style='color:green'> - Added pin_custom_emoji</span><br>";
-    } catch (Exception $e) { echo " - Column likely exists (Skipped)<br>"; }
+        $pdo->exec("ALTER TABLE chat_messages ADD COLUMN target_type VARCHAR(10) DEFAULT NULL");
+        echo "[OK] Added 'target_type' column.<br>";
+    } catch (Exception $e) { echo "[SKIP] 'target_type' likely exists.<br>"; }
 
-    // 2. Ensure guest columns exist (Just in case)
-    echo "Checking Guest Token columns...<br>";
-    try {
-        $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN is_muted TINYINT(1) DEFAULT 0");
-    } catch (Exception $e) {}
-    try {
-        $pdo->exec("ALTER TABLE guest_tokens ADD COLUMN slow_mode_override INT DEFAULT 0");
-    } catch (Exception $e) {}
-
-    echo "<h2 style='color:green'>SUCCESS: DATABASE STRUCTURE UPDATED.</h2>";
-    echo "<p>You can now delete this file and try saving your settings in Admin Dash.</p>";
-
-} catch (PDOException $e) {
-    echo "<h2 style='color:red'>CRITICAL FAILURE</h2>";
+    echo "<strong>Database Patch Complete. Delete this file.</strong>";
+} catch (Exception $e) {
     echo "Error: " . $e->getMessage();
 }
 ?>

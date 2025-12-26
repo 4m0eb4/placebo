@@ -2,9 +2,9 @@
 session_start();
 require 'db_config.php';
 
-// DEBUG LOGGING FUNCTION
+// DEBUG LOGGING FUNCTION (Disabled for Performance)
 function log_action($msg) {
-    file_put_contents('debug_dots.txt', date('[H:i:s] ') . $msg . PHP_EOL, FILE_APPEND);
+    // file_put_contents('debug_dots.txt', date('[H:i:s] ') . $msg . PHP_EOL, FILE_APPEND);
 }
 
 log_action("Action script triggered.");
