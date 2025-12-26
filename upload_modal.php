@@ -141,6 +141,7 @@ if ($upload_success) {
                             $disp_clean = strip_tags($disp_name);
                             
                             // [FIX] Determine Viewer URL based on Category
+                            // Ensure archive_view and file_view are correctly targeted
                             $viewer_page = "file_view.php"; // Default for docs
                             if ($category === 'image') {
                                 $viewer_page = "image_viewer.php";
@@ -151,6 +152,7 @@ if ($upload_success) {
                             // Link points to the Gallery Page ID
                             $link_url = $viewer_page . "?id=" . $new_upload_id;
                             
+                            // Use consistent color/formatting
                             $chat_body = "[b][color=#6a9c6a][UPLOAD][/color][/b] [url=" . $link_url . "]" . $disp_clean . "[/url]";
 
                             // Insert to Chat

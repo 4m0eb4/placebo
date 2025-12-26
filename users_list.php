@@ -42,8 +42,7 @@ $users = $stmt->fetchAll();
     
     <div style="max-width:800px; margin:0 auto;">
         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:10px; margin-bottom:20px;">
-            <h2 style="color:#d19a66; margin:0;">USER DIRECTORY</h2>
-            <a href="index.php" style="color:#666; text-decoration:none; font-size:0.8rem;">[ RETURN ]</a>
+
         </div>
 
         <form method="GET" style="margin-bottom:20px; display:flex; gap:10px;">

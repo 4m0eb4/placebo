@@ -23,12 +23,40 @@ if (!$upload_id) die("INVALID SIGNAL.");
 $my_id = $_SESSION['user_id'];
 $my_rank = $_SESSION['rank'] ?? 1;
 
-// --- FETCH UPLOAD ---
+// --- VIEW COUNT & AUTO-DELETE CHECK ---
+// Update view count first
+$pdo->prepare("UPDATE uploads SET views = COALESCE(views, 0) + 1 WHERE id = ?")->execute([$upload_id]);
+
+// Fetch Upload Data
 $stmt = $pdo->prepare("SELECT u.*, us.username, us.rank as uploader_rank FROM uploads u JOIN users us ON u.user_id = us.id WHERE u.id = ?");
 $stmt->execute([$upload_id]);
 $upload = $stmt->fetch();
 
 if (!$upload) die("TRANSMISSION LOST OR DELETED.");
+
+// Auto-Delete Logic (Max Views)
+$max_v = (int)($upload['max_views'] ?? 0);
+$cur_v = (int)($upload['views'] ?? 0);
+
+if ($max_v > 0 && $cur_v >= $max_v) {
+    // 1. Delete File
+    $path = __DIR__ . '/uploads/image/' . $upload['disk_filename'];
+    if (file_exists($path)) @unlink($path);
+    
+    // 2. Clean DB (Uploads, Comments, Votes)
+    $pdo->prepare("DELETE FROM uploads WHERE id = ?")->execute([$upload_id]);
+    $pdo->prepare("DELETE FROM upload_comments WHERE upload_id = ?")->execute([$upload_id]);
+    $pdo->prepare("DELETE FROM upload_votes WHERE upload_id = ?")->execute([$upload_id]);
+
+    // 3. Clean Chat Announcements (Remove messages linking to this ID)
+    // Matches BBCode: [url=image_viewer.php?id=123]...
+    $pdo->prepare("DELETE FROM chat_messages WHERE message LIKE ?")->execute(["%image_viewer.php?id=$upload_id]%"]);
+
+    die("<body style='background:#000;color:#e06c75;font-family:monospace;display:flex;justify-content:center;align-items:center;height:100vh;'>
+        SIGNAL TERMINATED: MAX VIEWS REACHED ($max_v)
+        <br><a href='gallery.php' style='color:#fff;margin-left:10px;'>[ RETURN ]</a>
+        </body>");
+}
 
 // --- PERMISSIONS ---
 // Fetch admin delete permission rank from settings (default Rank 9)
@@ -43,6 +71,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // 1. DELETE UPLOAD
     if (isset($_POST['delete_post']) && $can_delete) {
+        // Double check confirmation checkbox for No-JS safety
+        if (!isset($_POST['confirm_del'])) {
+            header("Location: image_viewer.php?id=$upload_id&error=noconfirm"); exit;
+        }
+
         // Delete file
         $path = __DIR__ . '/uploads/image/' . $upload['disk_filename'];
         if (file_exists($path)) @unlink($path);
@@ -52,6 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("DELETE FROM upload_comments WHERE upload_id = ?")->execute([$upload_id]);
         $pdo->prepare("DELETE FROM upload_votes WHERE upload_id = ?")->execute([$upload_id]);
         
+        // Clean Chat
+        $pdo->prepare("DELETE FROM chat_messages WHERE message LIKE ?")->execute(["%image_viewer.php?id=$upload_id]%"]);
+
         header("Location: gallery.php"); exit;
     }
 
@@ -175,18 +211,30 @@ $all_comments = $c_stmt->fetchAll();
 <body class="<?= $theme_cls ?? '' ?>">
     <div class="container">
         
-        <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-            <span class="term-title">FILE_VIEWER // <?= htmlspecialchars($upload['original_filename']) ?></span>
-            <a href="gallery.php" style="color: #666; text-decoration: none;">[ RETURN TO GRID ]</a>
+        <div style="margin-bottom: 20px; border-bottom:1px solid #333; padding-bottom:10px; display:flex; justify-content:space-between; align-items:flex-end;">
+            <div>
+                <div class="term-title">FILE_VIEWER // IMAGE</div>
+                <div style="font-size:0.7rem; color:#444; margin-top:5px;">ID: #<?= $upload_id ?></div>
+            </div>
+            <div style="font-family:monospace; font-size:0.8rem;">
+                <a href="index.php" style="color:#666; text-decoration:none; margin-right:10px;">[ HOME ]</a>
+                <a href="chat.php" style="color:#666; text-decoration:none; margin-right:10px;">[ CHAT ]</a>
+                <a href="gallery.php" style="color:#6a9c6a; text-decoration:none; margin-right:10px;">[ DATA ]</a>
+                <a href="links.php" style="color:#666; text-decoration:none;">[ LINKS ]</a>
+            </div>
         </div>
 
         <div class="img-container">
             <a href="uploads/image/<?= htmlspecialchars($upload['disk_filename']) ?>" target="_blank">
                 <img src="uploads/image/<?= htmlspecialchars($upload['disk_filename']) ?>">
             </a>
+            
             <?php if($can_delete): ?>
-                <form method="POST" onsubmit="return confirm('PERMANENTLY DELETE THIS FILE?');" style="margin-top:10px;">
-                    <button type="submit" name="delete_post" style="background: #220505; color: #e06c75; border: 1px solid #e06c75; padding: 5px 10px; cursor: pointer; font-weight: bold;">[ DELETE FILE ]</button>
+                <form method="POST" style="margin-top:15px; border-top:1px dashed #333; padding-top:10px; display:inline-block;">
+                    <label style="color:#e06c75; font-size:0.75rem; display:block; margin-bottom:5px; cursor:pointer;">
+                        <input type="checkbox" name="confirm_del" required> CONFIRM DELETION
+                    </label>
+                    <button type="submit" name="delete_post" style="background: #220505; color: #e06c75; border: 1px solid #e06c75; padding: 5px 10px; cursor: pointer; font-weight: bold; width:100%;">[ DELETE FILE ]</button>
                 </form>
             <?php endif; ?>
         </div>

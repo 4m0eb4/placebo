@@ -1,44 +1,33 @@
 <?php
 session_start();
 require 'db_config.php';
-require 'bbcode.php';
+require_once 'bbcode.php';
 
-// Access Control: Block Guests
+// --- SECURITY: NO GUESTS ---
 if (!isset($_SESSION['fully_authenticated']) || (isset($_SESSION['is_guest']) && $_SESSION['is_guest'])) { 
     header("Location: chat.php"); exit; 
 }
 
-// 1. IDENTITY RESOLUTION
-// Determine if we are a Registered User or a Guest
-$is_guest = isset($_SESSION['is_guest']) && $_SESSION['is_guest'];
+// 1. IDENTITY & PERMISSIONS
+$my_id = $_SESSION['user_id'];
+$my_type = 'user'; // PMs currently User-only
 
-if ($is_guest) {
-    $my_id = $_SESSION['guest_token_id']; // Guests use Token ID
-    $my_type = 'guest';
-} else {
-    $my_id = $_SESSION['user_id']; // Users use User ID
-    $my_type = 'user';
-}
-
-// Permission Logic
+// Fetch Permissions
 $stmt_p = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
 $perms = json_decode($stmt_p->fetchColumn() ?: '{}', true);
 $req_pm = $perms['perm_send_pm'] ?? 1;
 
-// Target Logic
+// 2. TARGET RESOLUTION
 $target_id = isset($_GET['to']) ? (int)$_GET['to'] : 0;
-// Note: Currently assumes targets are Users (since Guests replying to Guests is rare/edge case).
-// To support chatting with a guest, we would need a 'type' param in URL. Defaulting to 'user' target.
 $target_type = $_GET['type'] ?? 'user'; 
 
-// --- VIEW LOGIC ---
+// --- DATA FETCHING ---
+$contacts = [];
+$target_name = "Unknown";
+$target_key = "";
+
 if ($target_id) {
     // [ CONVERSATION MODE ]
-    
-    // Fetch Target Details
-    $target_name = "Unknown";
-    $target_key  = "";
-    
     if ($target_type === 'user') {
         $stmt_u = $pdo->prepare("SELECT username, pgp_public_key FROM users WHERE id = ?");
         $stmt_u->execute([$target_id]);
@@ -48,83 +37,171 @@ if ($target_id) {
             $target_key  = $res['pgp_public_key'];
         }
     } else {
-        // Guest Target
+        // Fallback for Guest targets (if enabled later)
         $stmt_g = $pdo->prepare("SELECT guest_username FROM guest_tokens WHERE id = ?");
         $stmt_g->execute([$target_id]);
         $target_name = $stmt_g->fetchColumn() ?: "Guest_#$target_id";
     }
-
 } else {
     // [ INBOX MODE ]
-    
-    // We fetch distinct senders who have messaged US.
-    // (Limitation: Without 'sender_type' in DB, we assume most senders are Users for now)
+    // Fetch unique senders
     $sql = "
         SELECT 
             pm.sender_id as id,
             MAX(pm.created_at) as last_msg,
             COUNT(CASE WHEN pm.is_read = 0 THEN 1 END) as unread
         FROM private_messages pm
-        WHERE pm.receiver_id = ? AND pm.receiver_type = ?
+        WHERE pm.receiver_id = ? 
         GROUP BY pm.sender_id
         ORDER BY last_msg DESC
     ";
-    
     $stmt = $pdo->prepare($sql);
-    $stmt->execute([$my_id, $my_type]);
+    $stmt->execute([$my_id]);
     $raw_contacts = $stmt->fetchAll();
     
-    // Hydrate Names
-    $contacts = [];
     foreach($raw_contacts as $c) {
-        // Fetch User Name
-        $stmt_u = $pdo->prepare("SELECT username, rank FROM users WHERE id = ?");
+        $stmt_u = $pdo->prepare("SELECT username, rank, chat_color FROM users WHERE id = ?");
         $stmt_u->execute([$c['id']]);
         $u = $stmt_u->fetch();
         
         if ($u) {
             $c['username'] = $u['username'];
             $c['rank'] = $u['rank'];
+            $c['color'] = $u['chat_color'];
             $c['type'] = 'user';
         } else {
-            // Fallback for Guest Senders (if ID doesn't match a user)
-            $c['username'] = "Unknown/Guest";
+            $c['username'] = "Unknown/Deleted";
             $c['rank'] = 0;
-            $c['type'] = 'guest'; 
+            $c['color'] = '#444';
+            $c['type'] = 'user'; 
         }
         $contacts[] = $c;
     }
 }
 ?>
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Secure Comms</title>
     <link rel="stylesheet" href="style.css">
     <style>
-        .pm-container { width: 100%; max-width: 1000px; margin: 0 auto; }
-        .inbox-card { background: #080808; border: 1px solid #222; padding: 15px; margin-bottom: 15px; }
-        
-        /* PGP ACCORDION */
-        details.pgp-top { background: #080808; border: 1px solid #333; border-top: none; margin-bottom: 20px; }
+        /* --- CRITICAL LAYOUT ENGINE --- */
+        html, body {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            background: #0d0d0d;
+            overflow: hidden; /* Prevent double scrollbars */
+            font-family: monospace;
+        }
+
+        .layout-root {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+            max-width: 1000px; /* Optional Constraint */
+            margin: 0 auto;
+            border-left: 1px solid #222;
+            border-right: 1px solid #222;
+            background: #0d0d0d;
+        }
+
+        /* Fixed Top Bar */
+        .layout-header {
+            flex: 0 0 auto; /* Don't shrink */
+            background: #161616;
+            border-bottom: 1px solid #333;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 50px; /* Explicit height helps calculation */
+            box-sizing: border-box;
+        }
+
+        /* Flexible Content Area */
+        .layout-content {
+            flex: 1; /* Take all remaining height */
+            position: relative; /* Anchor for absolute children */
+            display: flex;
+            flex-direction: column;
+            min-height: 0; /* Firefox Flexbox Fix */
+            background: #0d0d0d;
+        }
+
+        /* INBOX LIST SCROLL */
+        .inbox-scroll {
+            overflow-y: auto;
+            height: 100%;
+            padding: 20px;
+        }
+
+        /* CHAT IFRAME CONTAINER */
+        /* This is the magic fix. We force this container to fill the flex space,
+           then absolute position the iframe inside it. */
+        .stream-wrapper {
+            flex: 1; 
+            position: relative; 
+            min-height: 0; 
+            background: #000;
+        }
+
+        .iframe-fullscreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        /* INPUT AREA */
+        .input-wrapper {
+            flex: 0 0 105px; /* Fixed height for input */
+            border-top: 1px solid #333;
+            background: #111;
+            position: relative;
+        }
+
+        /* PGP DROPDOWN */
+        details.pgp-top { background: #111; border-bottom: 1px solid #333; }
         details.pgp-top summary { 
-            padding: 8px 15px; cursor: pointer; color: #666; font-size: 0.65rem; font-family: monospace; 
-            background: #111; border-bottom: 1px solid #333; user-select: none;
+            padding: 8px 15px; cursor: pointer; color: #666; font-size: 0.65rem; 
+            background: #161616; user-select: none; outline: none;
         }
         details.pgp-top summary:hover { color: #6a9c6a; }
-        details.pgp-top[open] summary { color: #6a9c6a; border-bottom: 1px solid #333; }
-        .pgp-content { padding: 10px; }
+        .pgp-box { 
+            width: 100%; height: 100px; background: #050505; color: #6a9c6a; 
+            border: none; padding: 10px; font-family: monospace; font-size: 0.7rem; 
+            resize: none; display: block; box-sizing: border-box;
+        }
+
+        /* LINKS */
+        a.contact-row {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #161616; border: 1px solid #333; 
+            padding: 12px 15px; margin-bottom: 8px; text-decoration: none;
+            transition: border-color 0.2s;
+        }
+        a.contact-row:hover { border-color: #6a9c6a; }
+        .badge { background: #333; color: #ccc; padding: 2px 6px; font-size: 0.65rem; border-radius: 3px; }
+        .unread { color: #e06c75; font-weight: bold; }
     </style>
 </head>
-<body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="margin:0; padding:0; height:100vh; overflow:hidden; display:flex; flex-direction:column;">
+<body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?>>
 
-<div class="main-container" style="width: 100%; max-width: 1000px; margin: 0 auto; height:100%; display:flex; flex-direction:column; border-left:1px solid #222; border-right:1px solid #222;">
-    <div class="nav-bar" style="flex: 0 0 auto; background: #161616; border-bottom: 1px solid #333; padding: 10px 20px; display:flex; justify-content:space-between; align-items:center;">
+<div class="layout-root">
+    
+    <div class="layout-header">
         <div style="display:flex; align-items:center; gap: 20px;">
-            <a href="index.php" class="term-logo">Placebo</a>
-            <span style="color:#444; font-size:0.75rem; font-family:monospace;">// Secure_Comms [<?= strtoupper($my_type) ?>]</span>
+            <a href="index.php" style="color:#888; text-decoration:none; font-weight:bold; letter-spacing:1px;">Placebo</a>
+            <span style="color:#444; font-size:0.75rem;">// ENCRYPTED_LINK [USER]</span>
         </div>
-        <div style="font-size:0.75rem; font-family:monospace;">
+        <div style="font-size:0.75rem;">
             <?php if($target_id): ?>
                 <a href="pm.php" style="color:#e5c07b; margin-right:15px; text-decoration:none;">&lt; INBOX</a>
             <?php else: ?>
@@ -134,47 +211,50 @@ if ($target_id) {
         </div>
     </div>
 
-    <div class="content-area" style="flex: 1; background: #0d0d0d; display:flex; flex-direction:column; min-height:0; overflow:hidden;">
+    <div class="layout-content">
         
         <?php if($target_id): ?>
-            <div style="padding:15px; border-bottom:1px solid #333; background:#111; display:flex; justify-content:space-between; align-items:center;">
-                <span style="color:#fff; font-weight:bold;">UPLINK: <?= htmlspecialchars($target_name) ?></span>
-                <span style="color:#444; font-size:0.7rem; font-family:monospace;">SECURE_V2 // NO_JS</span>
+            <div style="flex: 0 0 auto; padding: 10px 15px; background: #111; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #fff; font-weight: bold;">UPLINK: <span style="color: #6a9c6a;"><?= htmlspecialchars($target_name) ?></span></span>
+                <span style="color: #444; font-size: 0.7rem;">E2E_OFF // OTR_ON</span>
             </div>
 
             <?php if($target_key): ?>
-            <details class="pgp-top">
-                <summary>[ VIEW TARGET PGP IDENTITY ]</summary>
-                <div class="pgp-content">
-                     <textarea readonly class="pgp-box" style="height:120px; width:100%; box-sizing:border-box; background:#050505; color:#444; border:1px solid #222; font-family:monospace; padding:10px; display:block;"><?= htmlspecialchars($target_key) ?></textarea>
-                </div>
-            </details>
+            <div style="flex: 0 0 auto;">
+                <details class="pgp-top">
+                    <summary>[ VIEW TARGET PGP IDENTITY ]</summary>
+                    <textarea readonly class="pgp-box"><?= htmlspecialchars($target_key) ?></textarea>
+                </details>
+            </div>
             <?php endif; ?>
 
-            <div style="flex:1; background:#0d0d0d; position:relative; min-height:0;">
+            <div class="stream-wrapper">
                 <?php $wiped_flag = isset($_GET['wiped']) ? '&wiped=1' : ''; ?>
-                <iframe name="pm_stream" src="pm_stream.php?to=<?= $target_id . $wiped_flag ?>" style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"></iframe>
+                <iframe name="pm_stream" class="iframe-fullscreen" src="pm_stream.php?to=<?= $target_id . $wiped_flag ?>"></iframe>
             </div>
 
-            <div style="height:105px; min-height:105px; border-top:1px solid #333; background:#111; flex-shrink:0; overflow:hidden;">
-                <iframe name="pm_input" src="pm_input.php?to=<?= $target_id ?>" style="width:100%; height:100%; border:none; display:block;"></iframe>
+            <div class="input-wrapper">
+                <iframe name="pm_input" class="iframe-fullscreen" src="pm_input.php?to=<?= $target_id ?>"></iframe>
             </div>
 
         <?php else: ?>
-            <div style="padding:20px; overflow-y:auto;">
-                <h3 style="color:#d19a66; border-bottom:1px solid #333; padding-bottom:10px;">ACTIVE FREQUENCIES</h3>
+            <div class="inbox-scroll">
+                <h3 style="color:#d19a66; border-bottom:1px solid #333; padding-bottom:10px; margin-top:0;">ACTIVE FREQUENCIES</h3>
+                
                 <?php if(empty($contacts)): ?>
-                    <div style="color:#444;">No prior communications.</div>
+                    <div style="color:#444; padding:20px; text-align:center; border:1px dashed #333;">No encrypted sessions found.</div>
                 <?php endif; ?>
 
                 <?php foreach($contacts as $c): ?>
-                    <a href="pm.php?to=<?= $c['id'] ?>&type=<?= $c['type'] ?>" style="display:block; background:#161616; padding:12px; margin-bottom:8px; border:1px solid #333; text-decoration:none; display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <span style="color:#fff; font-weight:bold;"><?= htmlspecialchars($c['username']) ?></span>
-                            <span class="badge" style="margin-left:5px;">L<?= $c['rank'] ?></span>
+                    <a href="pm.php?to=<?= $c['id'] ?>&type=<?= $c['type'] ?>" class="contact-row">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span style="font-weight:bold; color:<?= $c['color'] ?: '#ccc' ?>;"><?= htmlspecialchars($c['username']) ?></span>
+                            <?php if($c['rank'] > 0): ?>
+                                <span class="badge">L<?= $c['rank'] ?></span>
+                            <?php endif; ?>
                         </div>
                         <?php if($c['unread'] > 0): ?>
-                            <div style="color:#e06c75; font-weight:bold; font-size:0.7rem;">[ <?= $c['unread'] ?> UNREAD ]</div>
+                            <div class="unread">[ <?= $c['unread'] ?> UNREAD ]</div>
                         <?php else: ?>
                             <div style="color:#444; font-size:0.7rem;">[ OPEN ]</div>
                         <?php endif; ?>
@@ -185,5 +265,6 @@ if ($target_id) {
 
     </div>
 </div>
+
 </body>
 </html>

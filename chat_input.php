@@ -152,14 +152,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $rev = strrev(trim($m[1]));
                 $msg = "&#8238;" . htmlspecialchars($rev);
             }
-// /whisper <user> <msg> (FIXED & TYPED)
+            // /whisper <user> <msg>
             elseif (preg_match('#^/whisper\s+"?([^"\s]+)"?\s+(.+)$#is', $msg, $m)) {
                 $t_user = trim($m[1]);
                 $t_msg = trim($m[2]);
                 $target_id = 0;
                 $t_type = '';
 
-                // 1. Check Registered Users (Uses 'username' column)
+                // 1. Check Registered Users
                 $stmt_u = $pdo->prepare("SELECT id FROM users WHERE username = ?");
                 $stmt_u->execute([$t_user]);
                 $uid = $stmt_u->fetchColumn();
@@ -168,12 +168,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $target_id = (int)$uid;
                     $t_type = 'user';
                 } else {
-// 2. Check Active Guests (Uses 'guest_username' column)
-                    // [FIX] ORDER BY id DESC ensures we get the LATEST session, not an old/stale one
+                    // 2. Check Active Guests
                     $stmt_g = $pdo->prepare("SELECT id FROM guest_tokens WHERE guest_username = ? AND status='active' ORDER BY id DESC LIMIT 1");
                     $stmt_g->execute([$t_user]);
                     $gid = $stmt_g->fetchColumn();
-                    
                     if ($gid) {
                         $target_id = (int)$gid;
                         $t_type = 'guest';
@@ -202,44 +200,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 header("Location: chat_input.php"); exit;
             }
-
-                // Only proceed if a valid target was found
-                if ($target_id > 0 && !empty($t_type)) {
-                    // Determine Sender Color
-                    $color = '#888888';
-                    if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
-                        $color = $_SESSION['guest_color'] ?? '#888888';
-                    } elseif (isset($_SESSION['user_id'])) {
-                        $stmt_c = $pdo->prepare("SELECT chat_color FROM users WHERE id = ?");
-                        $stmt_c->execute([$_SESSION['user_id']]);
-                        $color = $stmt_c->fetchColumn() ?: '#888888';
-                    }
-
-                    // FORCE SENDER ID TO 0 FOR GUESTS
-                    // Prevents "Foreign Key Constraint" crashes if 'user_id' links to 'users' table
-                    $sender_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
-                    $sender_rank = isset($_SESSION['rank']) ? (int)$_SESSION['rank'] : 0;
-
-                    try {
-                        $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, target_id, target_type, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, ?, 'whisper')");
-                        $stmt->execute([$sender_id, $target_id, $t_type, $_SESSION['username'], $t_msg, $sender_rank, $color]);
-                    } catch (PDOException $e) {
-                        // Fail silently or redirect with error to avoid 500 page
-                        header("Location: chat_input.php?error=whisper_failed"); exit;
-                    }
-                }
-                header("Location: chat_input.php"); exit;
-            }
         }
-
-        // 1. Determine Color
+        
+        // 1. Determine Colors (Name & Text)
         $color = '#888888';
+        $text_col = null; // Default null lets stream handle it, or use extracted
+
         if (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) {
             $color = $_SESSION['guest_color'] ?? '#888888';
         } else {
-            $stmt = $pdo->prepare("SELECT chat_color FROM users WHERE id = ?");
+            $stmt = $pdo->prepare("SELECT chat_color, chat_msg_color FROM users WHERE id = ?");
             $stmt->execute([$_SESSION['user_id']]);
-            $color = $stmt->fetchColumn() ?: '#888888';
+            $res = $stmt->fetch();
+            $color = $res['chat_color'] ?: '#888888';
+            $text_col = !empty($res['chat_msg_color']) ? $res['chat_msg_color'] : null;
         }
 
         // 2. Parse Emojis
@@ -273,8 +247,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // 4. Normal Message Insert
         try {
-            $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, channel_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, 'normal')");
-            $stmt->execute([$_SESSION['user_id'] ?? 0, $active_chan, $_SESSION['username'], $msg, $_SESSION['rank'] ?? 0, $color]);
+            $stmt = $pdo->prepare("INSERT INTO chat_messages (user_id, channel_id, username, message, rank, color_hex, text_color, msg_type) VALUES (?, ?, ?, ?, ?, ?, ?, 'normal')");
+            $stmt->execute([$_SESSION['user_id'] ?? 0, $active_chan, $_SESSION['username'], $msg, $_SESSION['rank'] ?? 0, $color, $text_col]);
             
             // --- AUTO PRUNE (Probabilistic: 1 in 50 Chance) ---
             if (random_int(1, 50) === 1) {
@@ -290,7 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         header("Location: chat_input.php"); exit;
     }
-
+}
 ?>
 <!DOCTYPE html>
 <html>

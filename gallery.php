@@ -91,19 +91,22 @@ $has_next = $check_next->fetchColumn();
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?> style="padding: 20px;">
     
-    <div style="margin-bottom: 20px; display:flex; justify-content:space-between; align-items:center;">
+    <div style="margin-bottom: 20px; border-bottom:1px solid #333; padding-bottom:10px; display:flex; justify-content:space-between; align-items:flex-end;">
         <div>
-            <span class="term-title">DATA_ARCHIVE // <?= strtoupper($view) ?>S</span>
+            <div class="term-title">DATA_ARCHIVE // <?= strtoupper($view) ?>S</div>
+            <form method="GET" style="display:flex; gap:5px; margin-top:5px;">
+                <input type="hidden" name="view" value="<?= $view ?>">
+                <input type="hidden" name="sort" value="<?= $sort ?>">
+                <input type="text" name="q" value="<?= htmlspecialchars($q) ?>" placeholder="Search..." style="background:#000; color:#fff; border:1px solid #333; padding:2px 5px; font-family:monospace; font-size:0.75rem;">
+                <button type="submit" style="background:#1a1a1a; border:1px solid #333; color:#6a9c6a; cursor:pointer; font-size:0.75rem;">&gt;</button>
+            </form>
         </div>
-        
-        <form method="GET" style="display:flex; gap:5px;">
-            <input type="hidden" name="view" value="<?= $view ?>">
-            <input type="hidden" name="sort" value="<?= $sort ?>">
-            <input type="text" name="q" value="<?= htmlspecialchars($q) ?>" placeholder="Search..." style="background:#000; color:#fff; border:1px solid #333; padding:5px; font-family:monospace;">
-            <button type="submit" style="background:#1a1a1a; border:1px solid #333; color:#6a9c6a; cursor:pointer;">&gt;</button>
-        </form>
-
-        <a href="index.php" style="color:#444; text-decoration:none;">[ EXIT ]</a>
+        <div style="font-family:monospace; font-size:0.8rem;">
+            <a href="index.php" style="color:#666; text-decoration:none; margin-right:10px;">[ HOME ]</a>
+            <a href="chat.php" style="color:#666; text-decoration:none; margin-right:10px;">[ CHAT ]</a>
+            <a href="gallery.php" style="color:#6a9c6a; text-decoration:none; margin-right:10px;">[ DATA ]</a>
+            <a href="links.php" style="color:#666; text-decoration:none;">[ LINKS ]</a>
+        </div>
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #333; margin-bottom:20px;">

@@ -194,12 +194,18 @@ $raw_style = $row['color_hex'] ?? '#888888';
         
         $inner_html = parse_bbcode($processed_name);
         
-        // INTELLIGENT COLOR EXTRACTION
-        // If the username has a [color=#hex] tag, we extract it and apply a pastel version to the message text.
-        if (preg_match('/\[color=(#[a-f0-9]{3,6})\]/i', $raw_style, $matches)) {
+        // COLOR PRIORITY SYSTEM
+        // 1. Explicit Text Color (from DB)
+        // 2. Extracted from Name Style
+        // 3. Default Grey
+        
+        if (!empty($row['text_color'])) {
+            $msg_color = $row['text_color'];
+        } 
+        elseif (preg_match('/\[color=(#[a-f0-9]{3,6})\]/i', $raw_style, $matches)) {
             $msg_color = to_pastel($matches[1]);
-        } else {
-            // No specific color tag found (e.g. just [b] or [glitch]), default to soft grey
+        } 
+        else {
             $msg_color = '#d0d0d0'; 
         }
 

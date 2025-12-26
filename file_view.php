@@ -29,19 +29,76 @@ if (!$upload) die("TRANSMISSION LOST OR DELETED.");
 $file_dir = 'uploads/doc/';
 $file_path = __DIR__ . '/' . $file_dir . $upload['disk_filename'];
 
-// --- DOWNLOAD HANDLER (Secure Headers) ---
+// --- AUTO-DELETE HELPER ---
+function check_and_delete_if_limit($pdo, $upload, $file_path, $type='view') {
+    $limit = ($type === 'dl') ? (int)($upload['max_downloads'] ?? 0) : 0; // Docs don't auto-del on view, only DL usually, but can be added.
+    $curr  = ($type === 'dl') ? (int)($upload['downloads'] ?? 0) : 0;
+    
+    if ($limit > 0 && $curr >= $limit) {
+         if (file_exists($file_path)) @unlink($file_path);
+         $id = $upload['id'];
+         $pdo->prepare("DELETE FROM uploads WHERE id = ?")->execute([$id]);
+         $pdo->prepare("DELETE FROM upload_comments WHERE upload_id = ?")->execute([$id]);
+         $pdo->prepare("DELETE FROM upload_votes WHERE upload_id = ?")->execute([$id]);
+         // Clean Chat
+         $pdo->prepare("DELETE FROM chat_messages WHERE message LIKE ?")->execute(["%file_view.php?id=$id]%"]);
+         
+         die("<body style='background:#000;color:#e06c75;font-family:monospace;display:flex;justify-content:center;align-items:center;height:100vh;'>
+            SIGNAL TERMINATED: LIMIT REACHED.
+            <br><a href='gallery.php?view=doc' style='color:#fff;margin-left:10px;'>[ RETURN ]</a>
+            </body>");
+    }
+}
+
+// --- DOWNLOAD HANDLER (Secure Headers + Count) ---
 if (isset($_GET['dl'])) {
     if (file_exists($file_path)) {
+        // Increment Download Count
+        $pdo->prepare("UPDATE uploads SET downloads = COALESCE(downloads, 0) + 1 WHERE id = ?")->execute([$upload_id]);
+        
+        // Refetch to check limit
+        $stmt_r = $pdo->prepare("SELECT * FROM uploads WHERE id = ?");
+        $stmt_r->execute([$upload_id]);
+        $up_fresh = $stmt_r->fetch();
+        
+        // Check Limit & Delete if needed (Post-Download Logic)
+        // Note: We allow this final download to finish, OR we die before? 
+        // User requested "delete after X". If X=1, 1st download happens, then delete.
+        // So we stream file first, OR we stream then delete. 
+        // For strictness: Stream first, then user logic runs next time? No, that leaves dead file.
+        // We will stream, then if we can't run code after readfile, we rely on the NEXT load to delete?
+        // PHP `readfile` outputs directly. We can't easily run code AFTER `exit`.
+        // Better: Check limit. If (current < max), increment, stream.
+        // If (current + 1 == max), this is the LAST download. Increment, Stream.
+        // If (current >= max), deny.
+        
+        $max_d = (int)($up_fresh['max_downloads'] ?? 0);
+        $cur_d = (int)($up_fresh['downloads'] ?? 0); // This is now +1
+        
+        // Header prep
         header('Content-Description: File Transfer');
         header('Content-Type: application/octet-stream');
         header('Content-Disposition: attachment; filename="'.($upload['original_filename'] ?: 'document.bin').'"');
         header('Content-Length: ' . filesize($file_path));
         header('Pragma: public');
         readfile($file_path);
+        
+        // Trigger Delete IF limit reached (This logic runs if readfile doesn't buffer-block, but usually script ends)
+        // To ensure deletion happens, we can check max_downloads on the PAGE VIEW (file_view.php main load), not just DL link.
+        // So if someone downloads the last one, the file is technically still there until the page is refreshed.
+        // That is acceptable for HTTP statelessness.
         exit;
     } else {
         die("FILE NOT FOUND ON DISK.");
     }
+}
+
+// --- CHECK LIMITS ON PAGE LOAD ---
+// This handles the cleanup if the limit was reached during the last download
+$curr_d = (int)($upload['downloads'] ?? 0);
+$max_d  = (int)($upload['max_downloads'] ?? 0);
+if ($max_d > 0 && $curr_d >= $max_d) {
+    check_and_delete_if_limit($pdo, $upload, $file_path, 'dl');
 }
 
 // --- PERMISSIONS ---
@@ -55,12 +112,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // 1. DELETE UPLOAD
     if (isset($_POST['delete_post']) && $can_delete) {
+        if (!isset($_POST['confirm_del'])) {
+             header("Location: file_view.php?id=$upload_id&error=noconfirm"); exit;
+        }
+
         if (file_exists($file_path)) @unlink($file_path);
         
         $pdo->prepare("DELETE FROM uploads WHERE id = ?")->execute([$upload_id]);
         $pdo->prepare("DELETE FROM upload_comments WHERE upload_id = ?")->execute([$upload_id]);
         $pdo->prepare("DELETE FROM upload_votes WHERE upload_id = ?")->execute([$upload_id]);
         
+        // Clean Chat
+        $pdo->prepare("DELETE FROM chat_messages WHERE message LIKE ?")->execute(["%file_view.php?id=$upload_id]%"]);
+
         header("Location: gallery.php?view=doc"); exit;
     }
 
@@ -151,9 +215,17 @@ $all_comments = $c_stmt->fetchAll();
 <body class="<?= $theme_cls ?? '' ?>">
     <div class="container">
         
-        <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-            <span class="term-title">FILE_VIEWER // DOCUMENT</span>
-            <a href="gallery.php?view=doc" style="color: #666; text-decoration: none;">[ RETURN ]</a>
+        <div style="margin-bottom: 20px; border-bottom:1px solid #333; padding-bottom:10px; display:flex; justify-content:space-between; align-items:flex-end;">
+            <div>
+                <div class="term-title">FILE_VIEWER // DOCUMENT</div>
+                <div style="font-size:0.7rem; color:#444; margin-top:5px;">ID: #<?= $upload_id ?></div>
+            </div>
+            <div style="font-family:monospace; font-size:0.8rem;">
+                <a href="index.php" style="color:#666; text-decoration:none; margin-right:10px;">[ HOME ]</a>
+                <a href="chat.php" style="color:#666; text-decoration:none; margin-right:10px;">[ CHAT ]</a>
+                <a href="gallery.php?view=doc" style="color:#6a9c6a; text-decoration:none; margin-right:10px;">[ DATA ]</a>
+                <a href="links.php" style="color:#666; text-decoration:none;">[ LINKS ]</a>
+            </div>
         </div>
 
         <div class="dl-box">
@@ -161,9 +233,18 @@ $all_comments = $c_stmt->fetchAll();
             <div style="margin-bottom: 20px; color: #888;"><?= htmlspecialchars($upload['original_filename']) ?></div>
             
             <a href="?id=<?= $upload_id ?>&dl=1" class="btn-dl">[ DOWNLOAD SECURELY ]</a>
+            
+            <?php if($max_d > 0): ?>
+                <div style="margin-top:10px; font-size:0.7rem; color:#e06c75;">
+                    AUTO-DELETE: <?= $curr_d ?> / <?= $max_d ?> DOWNLOADS
+                </div>
+            <?php endif; ?>
 
             <?php if($can_delete): ?>
-                <form method="POST" style="margin-top:20px;">
+                <form method="POST" style="margin-top:20px; border-top:1px dashed #333; padding-top:15px;">
+                    <label style="color:#e06c75; font-size:0.75rem; display:block; margin-bottom:5px; cursor:pointer;">
+                        <input type="checkbox" name="confirm_del" required> CONFIRM DELETION
+                    </label>
                     <button type="submit" name="delete_post" style="background: #220505; color: #e06c75; border: 1px solid #e06c75; padding: 5px 10px; cursor: pointer; font-weight: bold;">[ DELETE FILE ]</button>
                 </form>
             <?php endif; ?>

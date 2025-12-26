@@ -367,4 +367,48 @@ foreach ($pgp_blocks as $token => $raw) {
 return $text;
 
 }
+
+// --- USERNAME FX ENGINE ---
+function get_username_fx($name, $base_color = '#888') {
+    // Standardize
+    $n = strtolower(trim($name));
+    $style = "color: $base_color; font-weight:bold;";
+    $extra = "";
+
+    // 1. EXACT MATCH FX
+    switch($n) {
+        case 'admin': 
+        case 'root':
+        case 'system':
+            // Red Alert Glow
+            $style = "color: #e06c75; text-shadow: 0 0 5px #e06c75, 0 0 10px #e06c75;";
+            break;
+        
+        case 'ghost':
+        case 'phantom':
+            // Ethereal Blur
+            $style = "color: #ccc; opacity: 0.6; filter: blur(0.5px); transition:all 0.5s;";
+            $extra = "onmouseover='this.style.filter=\"blur(0)\";this.style.opacity=\"1\";' onmouseout='this.style.filter=\"blur(0.5px)\";this.style.opacity=\"0.6\";'";
+            break;
+
+        case 'gold':
+        case 'vip':
+            // Gold Shine
+            $style = "color: #e5c07b; text-shadow: 0 0 3px #9c7c36;";
+            break;
+            
+        case 'glitch':
+        case 'neo':
+            // Matrix/Glitch Green
+            $style = "color: #0f0; text-shadow: 2px 0 #00f, -2px 0 #f00;";
+            break;
+    }
+
+    // 2. PATTERN MATCH FX (optional)
+    if (str_starts_with($n, 'bot_')) {
+        $style = "color: #56b6c2; font-family: 'Courier New', monospace; letter-spacing: -1px;";
+    }
+
+    return "style=\"$style\" $extra";
+}
 ?>

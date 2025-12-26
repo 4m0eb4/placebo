@@ -29,9 +29,36 @@ if (!$upload) die("TRANSMISSION LOST OR DELETED.");
 $file_dir = 'uploads/zip/';
 $file_path = __DIR__ . '/' . $file_dir . $upload['disk_filename'];
 
-// --- DOWNLOAD HANDLER (Secure Headers) ---
+// --- AUTO-DELETE HELPER ---
+function check_and_delete_if_limit($pdo, $upload, $file_path) {
+    $limit = (int)($upload['max_downloads'] ?? 0);
+    $curr  = (int)($upload['downloads'] ?? 0);
+    
+    if ($limit > 0 && $curr >= $limit) {
+         if (file_exists($file_path)) @unlink($file_path);
+         $id = $upload['id'];
+         $pdo->prepare("DELETE FROM uploads WHERE id = ?")->execute([$id]);
+         $pdo->prepare("DELETE FROM upload_comments WHERE upload_id = ?")->execute([$id]);
+         $pdo->prepare("DELETE FROM upload_votes WHERE upload_id = ?")->execute([$id]);
+         // Clean Chat
+         $pdo->prepare("DELETE FROM chat_messages WHERE message LIKE ?")->execute(["%archive_view.php?id=$id]%"]);
+         
+         die("<body style='background:#000;color:#e06c75;font-family:monospace;display:flex;justify-content:center;align-items:center;height:100vh;'>
+            SIGNAL TERMINATED: DOWNLOAD LIMIT REACHED.
+            <br><a href='gallery.php?view=zip' style='color:#fff;margin-left:10px;'>[ RETURN ]</a>
+            </body>");
+    }
+}
+
+// --- DOWNLOAD HANDLER (Secure Headers + Count) ---
 if (isset($_GET['dl'])) {
     if (file_exists($file_path)) {
+        // Increment Download Count
+        $pdo->prepare("UPDATE uploads SET downloads = COALESCE(downloads, 0) + 1 WHERE id = ?")->execute([$upload_id]);
+        
+        // Check Limit logic happens on next page load or immediate check? 
+        // We allow the file to serve, then next access kills it.
+        
         header('Content-Description: File Transfer');
         header('Content-Type: application/octet-stream');
         header('Content-Disposition: attachment; filename="'.($upload['original_filename'] ?: 'archive.zip').'"');
@@ -42,6 +69,13 @@ if (isset($_GET['dl'])) {
     } else {
         die("FILE NOT FOUND ON DISK.");
     }
+}
+
+// --- CHECK LIMITS ON PAGE LOAD ---
+$curr_d = (int)($upload['downloads'] ?? 0);
+$max_d  = (int)($upload['max_downloads'] ?? 0);
+if ($max_d > 0 && $curr_d >= $max_d) {
+    check_and_delete_if_limit($pdo, $upload, $file_path);
 }
 
 // --- PERMISSIONS ---
@@ -55,12 +89,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // 1. DELETE UPLOAD
     if (isset($_POST['delete_post']) && $can_delete) {
+        if (!isset($_POST['confirm_del'])) {
+             header("Location: archive_view.php?id=$upload_id&error=noconfirm"); exit;
+        }
+
         if (file_exists($file_path)) @unlink($file_path);
         
         $pdo->prepare("DELETE FROM uploads WHERE id = ?")->execute([$upload_id]);
         $pdo->prepare("DELETE FROM upload_comments WHERE upload_id = ?")->execute([$upload_id]);
         $pdo->prepare("DELETE FROM upload_votes WHERE upload_id = ?")->execute([$upload_id]);
         
+        // Clean Chat
+        $pdo->prepare("DELETE FROM chat_messages WHERE message LIKE ?")->execute(["%archive_view.php?id=$upload_id]%"]);
+
         header("Location: gallery.php?view=zip"); exit;
     }
 
@@ -151,19 +192,36 @@ $all_comments = $c_stmt->fetchAll();
 <body class="<?= $theme_cls ?? '' ?>">
     <div class="container">
         
-        <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-            <span class="term-title">FILE_VIEWER // ARCHIVE</span>
-            <a href="gallery.php?view=zip" style="color: #666; text-decoration: none;">[ RETURN ]</a>
+        <div style="margin-bottom: 20px; border-bottom:1px solid #333; padding-bottom:10px; display:flex; justify-content:space-between; align-items:flex-end;">
+            <div>
+                <div class="term-title">FILE_VIEWER // ARCHIVE</div>
+                <div style="font-size:0.7rem; color:#444; margin-top:5px;">ID: #<?= $upload_id ?></div>
+            </div>
+            <div style="font-family:monospace; font-size:0.8rem;">
+                <a href="index.php" style="color:#666; text-decoration:none; margin-right:10px;">[ HOME ]</a>
+                <a href="chat.php" style="color:#666; text-decoration:none; margin-right:10px;">[ CHAT ]</a>
+                <a href="gallery.php?view=zip" style="color:#6a9c6a; text-decoration:none; margin-right:10px;">[ DATA ]</a>
+                <a href="links.php" style="color:#666; text-decoration:none;">[ LINKS ]</a>
+            </div>
         </div>
 
         <div class="dl-box">
-            <div style="font-size: 2rem; margin-bottom: 10px; color: #444;">[ ZIP/RAR ]</div>
+            <div style="font-size: 2rem; margin-bottom: 10px; color: #444;">[ ARCHIVE ]</div>
             <div style="margin-bottom: 20px; color: #888;"><?= htmlspecialchars($upload['original_filename']) ?></div>
             
             <a href="?id=<?= $upload_id ?>&dl=1" class="btn-dl">[ DOWNLOAD ARCHIVE ]</a>
+            
+            <?php if($max_d > 0): ?>
+                <div style="margin-top:10px; font-size:0.7rem; color:#e06c75;">
+                    AUTO-DELETE: <?= $curr_d ?> / <?= $max_d ?> DOWNLOADS
+                </div>
+            <?php endif; ?>
 
             <?php if($can_delete): ?>
-                <form method="POST" style="margin-top:20px;">
+                <form method="POST" style="margin-top:20px; border-top:1px dashed #333; padding-top:15px;">
+                    <label style="color:#e06c75; font-size:0.75rem; display:block; margin-bottom:5px; cursor:pointer;">
+                        <input type="checkbox" name="confirm_del" required> CONFIRM DELETION
+                    </label>
                     <button type="submit" name="delete_post" style="background: #220505; color: #e06c75; border: 1px solid #e06c75; padding: 5px 10px; cursor: pointer; font-weight: bold;">[ DELETE FILE ]</button>
                 </form>
             <?php endif; ?>

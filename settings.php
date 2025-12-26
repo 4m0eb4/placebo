@@ -98,6 +98,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg .= " Status Updated.";
         } catch (Exception $e) {}
     }
+
+    // 5. Visual Config (Rank 9 Only)
+    if ($user['rank'] >= 9 && isset($_POST['update_visuals'])) {
+        try {
+            // Opacity
+            $op = (int)$_POST['bg_opacity'];
+            if ($op < 0) $op = 0; if ($op > 100) $op = 100;
+            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('bg_opacity', ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$op, $op]);
+
+            // Background Upload Helper
+            $handle_upload = function($key, $file, $pdo) {
+                if ($file['error'] === UPLOAD_ERR_OK) {
+                    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                    if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
+                        $new_name = bin2hex(random_bytes(16)) . '.' . $ext;
+                        $path = 'uploads/image/' . $new_name;
+                        if (move_uploaded_file($file['tmp_name'], $path)) {
+                            $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?")->execute([$key, $path, $path]);
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            // Main BG
+            if (isset($_POST['del_main_bg'])) {
+                $pdo->query("UPDATE settings SET setting_value = '' WHERE setting_key = 'site_bg_url'");
+            } elseif (!empty($_FILES['main_bg_file']['name'])) {
+                $handle_upload('site_bg_url', $_FILES['main_bg_file'], $pdo);
+            }
+
+            // Chat BG
+            if (isset($_POST['del_chat_bg'])) {
+                $pdo->query("UPDATE settings SET setting_value = '' WHERE setting_key = 'chat_bg_url'");
+            } elseif (!empty($_FILES['chat_bg_file']['name'])) {
+                $handle_upload('chat_bg_url', $_FILES['chat_bg_file'], $pdo);
+            }
+
+            $msg .= " Visuals Updated.";
+        } catch (Exception $e) {}
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -124,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <div style="padding: 25px;">
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             <h3 class="section-head">IDENTITY PARAMETERS</h3>
             <div class="settings-grid">
                 <div class="stat-box">
@@ -195,6 +237,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <?php endif; ?>
             
+            <?php if ($user['rank'] >= 9): ?>
+            <h3 class="section-head" style="margin-top: 30px; color: #56b6c2;">VISUAL CONFIG (ADMIN)</h3>
+            <div style="background:#111; border:1px solid #333; padding:15px;">
+                <div class="input-group">
+                    <label>MAIN BACKGROUND IMAGE</label>
+                    <input type="file" name="main_bg_file" style="padding:5px;">
+                    <label style="margin-top:5px; display:inline-block;"><input type="checkbox" name="del_main_bg"> REMOVE EXISTING</label>
+                </div>
+                <div class="input-group" style="margin-top:15px;">
+                    <label>CHAT STREAM BACKGROUND</label>
+                    <input type="file" name="chat_bg_file" style="padding:5px;">
+                    <label style="margin-top:5px; display:inline-block;"><input type="checkbox" name="del_chat_bg"> REMOVE EXISTING</label>
+                </div>
+                <div class="input-group" style="margin-top:15px;">
+                    <label>BACKGROUND OPACITY % (Higher = Darker)</label>
+                    <input type="number" name="bg_opacity" value="85" min="0" max="100" placeholder="0 - 100">
+                </div>
+                <input type="hidden" name="update_visuals" value="1">
+            </div>
+            <?php endif; ?>
+
             <button type="submit" class="btn-primary" style="margin-top:15px;">UPDATE PROFILE</button>
             
             

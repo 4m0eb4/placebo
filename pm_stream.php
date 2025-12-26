@@ -30,7 +30,13 @@ $t_name = $stmt_u->fetchColumn();
 function render_pm($row, $my_id, $target_name) {
     $is_me = ($row['sender_id'] == $my_id);
     $cls = $is_me ? 'pm-sent' : 'pm-rec';
-    $header_name = $is_me ? 'YOU' : $target_name;
+    
+    // 1. Username FX & Header Setup
+    $raw_name = $is_me ? 'You' : $target_name;
+    // Check if function exists to avoid crash if bbcode.php isn't updated yet
+    $fx_attr = function_exists('get_username_fx') ? get_username_fx($raw_name, ($is_me ? '#fff' : '#6a9c6a')) : "style='color:".($is_me ? '#fff' : '#6a9c6a').";'";
+    $header_html = "<span $fx_attr>" . htmlspecialchars($raw_name) . "</span>";
+    
     $time = date('H:i', strtotime($row['created_at']));
     $dom_id = "pm_" . $row['id'];
     
@@ -43,7 +49,7 @@ function render_pm($row, $my_id, $target_name) {
                     <span style='font-size:0.7rem;'>WAITING FOR PARTNER APPROVAL...</span>
                   </div>";
         } else {
-            // Direct Action Link: Targets _top to Wipe AND Redirect the whole window immediately
+            // Direct Action Link
             echo "<div style='background:#220505; color:#e06c75; border:1px solid #e06c75; padding:15px; text-align:center; margin:10px 0;'>
                     <strong style='font-size:0.9rem; display:block; margin-bottom:5px; animation: pulse-red 1s infinite;'>⚠️ PARTNER REQUESTED WIPE</strong>
                     <div style='font-size:0.7rem; color:#aaa; margin-bottom:10px;'>CLICK TO EXECUTE PROTOCOL</div>
@@ -56,7 +62,7 @@ function render_pm($row, $my_id, $target_name) {
 
     $body = parse_bbcode($row['message']);
     
-// Action Buttons
+    // Action Buttons
     $actions = "";
     $target_param = $_GET['to'] ?? 0;
 
@@ -64,15 +70,15 @@ function render_pm($row, $my_id, $target_name) {
         $del_link = "pm_input.php?action=delete&msg_id={$row['id']}&to={$target_param}";
         $actions = "<a href='$del_link' target='pm_input' style='color:#444; text-decoration:none; margin-left:10px; font-weight:bold;' title='Delete'>[x]</a>";
     } else {
-        // [REPLY] - Sends parameters to pm_input for the styled box
+        // [REPLY] - Uses raw_name now
         $clean_text = trim(strip_tags($row['message'])); 
-        $reply_qs = http_build_query(['to' => $target_param, 'reply_text' => $clean_text, 'reply_user' => $header_name]);
+        $reply_qs = http_build_query(['to' => $target_param, 'reply_text' => $clean_text, 'reply_user' => $raw_name]);
         $actions = "<a href='pm_input.php?$reply_qs' target='pm_input' style='color:#555; text-decoration:none; margin-left:10px; font-size:0.65rem;' title='Reply'>[reply]</a>";
     }
 
     echo "<div id='$dom_id' class='pm-msg $cls'>
             <div class='pm-header'>
-                <span>$header_name | $time</span>
+                <span>$header_html <span style='color:#444;'>| $time</span></span>
                 <span>$actions</span>
             </div>
             <div style='font-family:monospace; white-space:pre-wrap;'>$body</div>

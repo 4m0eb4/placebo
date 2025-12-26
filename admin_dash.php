@@ -310,18 +310,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "User Deleted.";
         }
         if (isset($_POST['update_rank'])) {
-            // SECURITY: strip_tags removes HTML (< >) but allows BBCode ([ ]) and CSS (; :)
             $c = strip_tags($_POST['chat_color'] ?? '');
+            $mc = strip_tags($_POST['chat_msg_color'] ?? ''); // New Message Color
             
-            // Allow Rank 10 to edit anyone, including themselves
+            // Apply FX Preset if selected
+            if (!empty($_POST['apply_fx'])) {
+                $fx_map = [
+                    'rainbow' => '[rainbow]{u}[/rainbow]',
+                    'glitch' => '[glitch]{u}[/glitch]',
+                    'glow' => '[glow]{u}[/glow]',
+                    'fire' => '[color=#ff4444][b]{u}[/b][/color]',
+                    'ghost' => '[ghost]{u}[/ghost]',
+                    'mirror' => '[mirror]{u}[/mirror]',
+                    'box' => '[box=User]{u}[/box]'
+                ];
+                if (isset($fx_map[$_POST['apply_fx']])) {
+                    $c = $fx_map[$_POST['apply_fx']];
+                }
+            }
+
+            // Allow Rank 10 to edit anyone
             if ($_SESSION['rank'] >= 10) {
-                $stmt = $pdo->prepare("UPDATE users SET rank = ?, chat_color = ? WHERE id = ?");
-                $stmt->execute([$_POST['new_rank'], $c, $_POST['user_id']]);
+                $stmt = $pdo->prepare("UPDATE users SET rank = ?, chat_color = ?, chat_msg_color = ? WHERE id = ?");
+                $stmt->execute([$_POST['new_rank'], $c, $mc, $_POST['user_id']]);
                 $msg = "User Profile Updated.";
             } else {
-                 // Lower admins cannot touch Rank 10s
-                 $stmt = $pdo->prepare("UPDATE users SET rank = ?, chat_color = ? WHERE id = ? AND rank < 10");
-                 $stmt->execute([$_POST['new_rank'], $c, $_POST['user_id']]);
+                 $stmt = $pdo->prepare("UPDATE users SET rank = ?, chat_color = ?, chat_msg_color = ? WHERE id = ? AND rank < 10");
+                 $stmt->execute([$_POST['new_rank'], $c, $mc, $_POST['user_id']]);
                  $msg = "User Profile Updated (Restricted).";
             }
         }
@@ -497,12 +512,15 @@ $pdo->prepare($sql)->execute($params);
             try {
                 $pdo->exec("ALTER TABLE chat_messages ADD COLUMN channel_id INT DEFAULT 1");
                 $pdo->exec("ALTER TABLE chat_messages ADD INDEX (channel_id)");
-                // [FIX] Ensure Pin Columns Exist to prevent 500 Errors
                 $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_color VARCHAR(20) DEFAULT NULL");
                 $pdo->exec("ALTER TABLE chat_channels ADD COLUMN pin_custom_emoji VARCHAR(20) DEFAULT NULL");
+                
+                // [NEW] Custom Text Colors
+                $pdo->exec("ALTER TABLE users ADD COLUMN chat_msg_color VARCHAR(20) DEFAULT NULL");
+                $pdo->exec("ALTER TABLE chat_messages ADD COLUMN text_color VARCHAR(20) DEFAULT NULL");
             } catch (Exception $e) {}
 
-            $msg = "Database Structure Upgraded (Multi-Channel + Pins Active).";
+            $msg = "Database Structure Upgraded (Colors + FX Active).";
         }
         
         if (isset($_POST['purge_chat'])) {
@@ -1225,8 +1243,24 @@ if ($tab === 'logs') {
                 
                 <td style="vertical-align:middle; padding: 5px;">
                     <input type="text" name="chat_color" value="<?= htmlspecialchars($u['chat_color']??'') ?>" 
-                           placeholder="CSS or [b]{u}[/b]" 
-                           style="width:100%; height:26px; background:#0b0b0b; border:1px solid #333; color:#bbb; font-size:0.7rem; padding:0 5px; font-family:monospace; box-sizing:border-box;">
+                           placeholder="Name Style (e.g. [b]{u}[/b])" title="Username Style"
+                           style="width:100%; height:26px; background:#0b0b0b; border:1px solid #333; color:#e5c07b; font-size:0.7rem; padding:0 5px; margin-bottom:4px; font-family:monospace; box-sizing:border-box;">
+                    
+                    <div style="display:flex; gap:4px;">
+                        <input type="text" name="chat_msg_color" value="<?= htmlspecialchars($u['chat_msg_color']??'') ?>" 
+                               placeholder="Text Color (Hex)" title="Message Text Color"
+                               style="flex:1; height:24px; background:#111; border:1px solid #333; color:#bbb; font-size:0.7rem; padding:0 5px;">
+                        
+                        <select name="apply_fx" style="width:80px; height:24px; background:#111; color:#6a9c6a; border:1px solid #333; font-size:0.65rem; padding:0;">
+                            <option value="">[ FX... ]</option>
+                            <option value="rainbow">Rainbow</option>
+                            <option value="glitch">Glitch</option>
+                            <option value="glow">Neon</option>
+                            <option value="fire">Fire</option>
+                            <option value="ghost">Ghost</option>
+                            <option value="mirror">Mirror</option>
+                        </select>
+                    </div>
                 </td>
                 
                 <td style="vertical-align:middle; padding: 5px; text-align:right;">
