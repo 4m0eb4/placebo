@@ -2,17 +2,29 @@
 session_start();
 require 'db_config.php';
 
-// Auth Check (Dynamic)
-$stmt_p = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
-$perms = json_decode($stmt_p->fetchColumn() ?: '{}', true);
+// Auth & Rank Config (Dynamic)
+$stmt_s = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('permissions_config', 'rank_config')");
+$site_settings = $stmt_s->fetchAll(PDO::FETCH_KEY_PAIR);
+
+$perms = json_decode($site_settings['permissions_config'] ?? '{}', true);
+$rank_map = json_decode($site_settings['rank_config'] ?? '{}', true);
 $req_dir = $perms['perm_view_directory'] ?? 3;
+
+// Default Ranks (Fallback if Admin Dash setting is empty)
+if (empty($rank_map)) { 
+    $rank_map = [10=>'OWNER', 9=>'ADMIN', 8=>'MOD', 5=>'O.G', 1=>'USER']; 
+}
 
 if (!isset($_SESSION['fully_authenticated']) || ($_SESSION['rank'] ?? 0) < $req_dir) {
     die("ACCESS DENIED: CLEARANCE LEVEL $req_dir REQUIRED.");
 }
 
-// Search Logic
+// Search & Pagination Logic
 $search = trim($_GET['q'] ?? '');
+$page = max(1, intval($_GET['page'] ?? 1)); 
+$per_page = 25; // Reduced to 50 for better visual fit
+$offset = ($page - 1) * $per_page;
+
 $params = [];
 $sql = "SELECT id, username, rank, last_active, user_status, chat_color FROM users WHERE 1=1";
 
@@ -21,10 +33,14 @@ if ($search) {
     $params[] = "%$search%";
 }
 
-$sql .= " ORDER BY username ASC LIMIT 100";
+// Securely interpolate integers for Limit/Offset
+$sql .= " ORDER BY username ASC LIMIT $per_page OFFSET $offset";
+
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $users = $stmt->fetchAll();
+
+// Note: $rank_map is now defined at the top of the file via DB/Fallback.
 ?>
 <!DOCTYPE html>
 <html>
@@ -50,7 +66,7 @@ $users = $stmt->fetchAll();
             <button type="submit" class="btn-primary" style="width:auto; padding:0 15px;">SEARCH</button>
         </form>
 
-        <div style="background:#0f0f0f; border:1px solid #333;">
+        <div style="background:rgba(15, 15, 15, 0.9); border:1px solid #333;">
             <?php if(empty($users)): ?>
                 <div style="padding:20px; text-align:center; color:#555;">No signals found.</div>
             <?php else: ?>
@@ -80,7 +96,7 @@ $users = $stmt->fetchAll();
                     <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" style="font-weight:bold; text-decoration:none; margin-right:10px; <?= $wrapper_style ?>">
                         <?= $inner_html ?>
                     </a>
-                    <span class="u-rank">LVL <?= $u['rank'] ?></span>
+                    <span class="u-rank"><?= $rank_map[$u['rank']] ?? 'LVL ' . $u['rank'] ?></span>
                 </div>
                         <div style="text-align:right;">
                              <span style="font-size:0.7rem; color:#444; margin-right:10px; font-family:monospace;">
@@ -91,6 +107,26 @@ $users = $stmt->fetchAll();
                         </div>
                     </div>
                 <?php endforeach; ?>
+            <?php endif; ?>
+
+            <?php if($page > 1 || count($users) >= $per_page): ?>
+                <div style="padding:10px; border-top:1px solid #333; display:flex; justify-content:space-between; background:rgba(0,0,0,0.3);">
+                    <?php $q_param = $search ? '&q=' . urlencode($search) : ''; ?>
+                    
+                    <?php if($page > 1): ?>
+                        <a href="?page=<?= $page - 1 ?><?= $q_param ?>" class="btn-primary" style="width:auto; padding:5px 15px; text-decoration:none; font-size:0.8rem;">&laquo; PREV</a>
+                    <?php else: ?>
+                        <span style="color:#333;">&laquo; PREV</span>
+                    <?php endif; ?>
+
+                    <span style="font-family:monospace; color:#666;">PG <?= $page ?></span>
+
+                    <?php if(count($users) >= $per_page): ?>
+                        <a href="?page=<?= $page + 1 ?><?= $q_param ?>" class="btn-primary" style="width:auto; padding:5px 15px; text-decoration:none; font-size:0.8rem;">NEXT &raquo;</a>
+                    <?php else: ?>
+                        <span style="color:#333;">NEXT &raquo;</span>
+                    <?php endif; ?>
+                </div>
             <?php endif; ?>
         </div>
     </div>

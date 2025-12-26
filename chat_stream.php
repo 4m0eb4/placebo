@@ -387,13 +387,7 @@ try {
         $heartbeat++;
         $now = time();
         
-        // -1. CHECK PINNED MESSAGE (Every ~5s)
-        if ($now - $last_pin_check >= 5) {
-            $last_pin_check = $now;
-            // Initialize tracker if not set in this scope
-            $last_pin_dom_id = $last_pin_dom_id ?? null; 
-
-            try {
+try {
                 // Fetch Pin & Styles for Active Channel
                 $cid = $_SESSION['active_channel'] ?? 1;
                 $p_stmt = $pdo->prepare("SELECT pinned_msg, pin_style, pin_custom_color, pin_custom_emoji FROM chat_channels WHERE id = ?");
@@ -409,9 +403,9 @@ try {
                 if ($pin_hash !== $current_pin_hash) {
                     $current_pin_hash = $pin_hash;
 
-                    // 1. Clean up OLD pin using CSS (No JS)
+                    // 1. Clean up OLD pin & spacer using CSS (No JS)
                     if ($last_pin_dom_id) {
-                        echo "<style>#{$last_pin_dom_id} { display: none !important; }</style>";
+                        echo "<style>#{$last_pin_dom_id}, #buf_{$last_pin_dom_id} { display: none !important; }</style>";
                     }
 
                     // 2. Output NEW Pin (or nothing if empty)
@@ -431,31 +425,50 @@ try {
                         
                         $label_html = ($label !== "") ? "<strong style='background:$c_border; color:#000; padding:2px 6px; border-radius:2px; flex-shrink:0;'>$label</strong>" : "";
 
+                        // A. THE FIXED PIN (Visual Overlay)
                         echo "<div id=\"$pid\" style=\"
-                                position: sticky; 
-                                top: 0; 
-                                order: 2147483647; 
-                                z-index: 9000; 
-                                margin: -20px -20px 20px -20px;
+                                position: fixed; 
+                                top: 0; left: 0; width: 100%;
+                                z-index: 99990; 
                                 background: $c_bg; 
                                 border-bottom: 1px solid $c_border; 
                                 color: $c_text; 
                                 padding: 10px 15px; 
                                 font-size: 0.75rem; 
-                                box-shadow: 0 5px 15px rgba(0,0,0,0.5); 
+                                box-shadow: 0 5px 15px rgba(0,0,0,0.8); 
                                 display: flex; flex-direction: column; align-items: stretch; gap: 5px;
+                                box-sizing: border-box;
                               \">
                                 <div style=\"display: flex; align-items: center; gap: 10px; width: 100%;\">
                                     $label_html 
                                     <span style=\"flex-grow: 1; width: 100%;\">$parsed_pin</span>
                                 </div>
                               </div>";
+
+                        // B. THE INVISIBLE BUFFER (Structural Spacer)
+                        // This pushes messages down so they aren't hidden behind the fixed pin
+                        echo "<div id=\"buf_$pid\" style=\"
+                                order: 2147483647; 
+                                visibility: hidden; pointer-events: none;
+                                position: relative; width: 100%;
+                                padding: 5px 5px; 
+                                font-size: 0.75rem; 
+                                border-bottom: 1px solid transparent;
+                                display: flex; flex-direction: column; align-items: stretch; gap: 5px;
+                                box-sizing: border-box;
+                                margin-bottom: 10px; 
+                              \">
+                                <div style=\"display: flex; align-items: center; gap: 10px; width: 100%;\">
+                                    $label_html 
+                                    <span style=\"flex-grow: 1; width: 100%;\">$parsed_pin</span>
+                                </div>
+                              </div>";
+
                     } else {
                         $last_pin_dom_id = null;
                     }
                 }
             } catch (Exception $e) {}
-        }
 
         // 0. UPDATE PRESENCE (Every 60s)
         if ($now - $last_active_update >= 60) {
@@ -493,13 +506,18 @@ try {
              }
         }
 
-        // 2. Reset Check
+        // 2. Reset Check (Fixed: Prevent Flood on Deletion)
         $check_reset = $pdo->query("SELECT MAX(id) FROM chat_messages")->fetchColumn();
-        if ($check_reset < $last_id) $last_id = 0;
+        // If DB max ID dropped (e.g. latest msg deleted), just sync to it. 
+        // Do NOT reset to 0, as that triggers a full history dump (Flood).
+        if ($check_reset < $last_id) {
+             $last_id = $check_reset;
+        }
 
-        // 3. New Messages
+        // 3. New Messages (Throttled)
         $cid = $_SESSION['active_channel'] ?? 1;
-        $stmt = $pdo->prepare("SELECT * FROM chat_messages WHERE id > ? AND channel_id = ? ORDER BY id ASC");
+        // Added LIMIT 50 to prevent massive rendering spikes if connection lagged
+        $stmt = $pdo->prepare("SELECT * FROM chat_messages WHERE id > ? AND channel_id = ? ORDER BY id ASC LIMIT 50");
         $stmt->execute([$last_id, $cid]);
         $new = $stmt->fetchAll();
         foreach($new as $msg) {
@@ -612,11 +630,20 @@ try {
             }
         } // End Notification Check
 
-        echo " "; flush();
-        sleep(1);
+echo " "; flush();
+        
+        // INTELLIGENT THROTTLE: Check if user is active in PMs to save CPU
+        // If pm_active lock exists and is fresh (<5s), sleep longer here.
+        $pm_lock = sys_get_temp_dir() . "/pm_active_" . ($_SESSION['user_id'] ?? 0) . ".lock";
+        if (file_exists($pm_lock) && (time() - filemtime($pm_lock) < 5)) {
+            sleep(3); // Slow down main chat while user focuses on PMs
+        } else {
+            sleep(1); // Normal speed
+        }
+
         if (connection_aborted()) break;
     }
-} catch (Exception $e) { 
+} catch (Exception $e) {
     echo "DB_ERROR: " . htmlspecialchars($e->getMessage()); 
 }
 ?>

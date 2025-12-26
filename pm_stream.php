@@ -227,6 +227,11 @@ $stmt->execute([
 
         echo " "; // Filler byte to force flush
         flush();
+        
+        // SIGNAL BUSY: Touch lock file so chat_stream knows to throttle
+        $pm_lock = sys_get_temp_dir() . "/pm_active_" . $my_id . ".lock";
+        @touch($pm_lock);
+
         sleep(1);
         
         if (connection_aborted()) break;

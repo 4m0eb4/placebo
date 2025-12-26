@@ -1119,3 +1119,41 @@ body.theme-matrix {
 }
 .bb-coin { border-bottom: 2px solid #e5c07b; }
 .bb-roll { border-bottom: 2px solid #56b6c2; }
+
+/* --- USERNAME FX (NO-JS / TOR SAFE) --- */
+.user-admin, .user-root, .user-system {
+    color: #e06c75 !important;
+    text-shadow: 0 0 5px #e06c75;
+    font-weight: bold;
+}
+
+.user-ghost, .user-phantom {
+    color: #ccc !important;
+    opacity: 0.6;
+    filter: blur(0.5px);
+    transition: all 0.5s ease;
+    font-weight: bold;
+}
+.user-ghost:hover, .user-phantom:hover {
+    filter: blur(0);
+    opacity: 1;
+}
+
+.user-gold, .user-vip {
+    color: #e5c07b !important;
+    text-shadow: 0 0 3px #9c7c36;
+    font-weight: bold;
+}
+
+.user-glitch, .user-neo {
+    color: #0f0 !important;
+    text-shadow: 2px 0 #00f, -2px 0 #f00;
+    font-weight: bold;
+}
+
+.user-bot {
+    color: #56b6c2 !important;
+    font-family: 'Courier New', monospace;
+    letter-spacing: -1px;
+    font-weight: bold;
+}

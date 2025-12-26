@@ -128,9 +128,10 @@ try {
         .nav-bar { flex-shrink: 0; z-index: 10; border-bottom: 1px solid #333; width: 100%; box-sizing: border-box; }
         .chat-container { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; width: 100%; }
         
+        /* Updated: Very slight transparency (0.95) */
         .chat-options {
             height: 35px;
-            background: #111;
+            background: rgba(17, 17, 17, 0.95);
             border-top: 1px solid #222;
             display: flex;
             align-items: center;
@@ -145,7 +146,8 @@ try {
         .opt-btn-green { color: #5a8a5a; }
         .opt-btn-green:hover { color: #6a9c6a; }
         
-        .status-buffer { height: 30px; background: #0d0d0d; border-top: 1px solid #1a1a1a; flex-shrink: 0; }
+        /* Updated: Very slight transparency (0.95) */
+        .status-buffer { height: 30px; background: rgba(13, 13, 13, 0.95); border-top: 1px solid #1a1a1a; flex-shrink: 0; }
     </style>
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $bg_style ?? '' ?>>

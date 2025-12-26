@@ -199,6 +199,14 @@ require 'bbcode.php';
     <div style="margin-top:20px; border-top:1px solid #222; padding-top:10px; text-align:center; color:#444; font-size:0.6rem;">
         // CLICK TO SELECT // COPY TO CLIPBOARD
     </div>
+    <div class="section-bar">Interactive & Games</div>
+    <div class="grid-2-col">
+        <div class="module"><span class="mod-code">[roll]...[/roll]</span><span class="mod-desc bb-roll">🎲 DICE</span></div>
+        <div class="module"><span class="mod-code">[coin]...[/coin]</span><span class="mod-desc bb-coin">🪙 FLIP</span></div>
+        <div class="module"><span class="mod-code">[me]...[/me]</span><span class="mod-desc bb-me">ACTION</span></div>
+        <div class="module"><span class="mod-code">[game=ID]</span><span class="mod-desc" style="color:#e5c07b">JOIN DOTS</span></div>
+    </div>
+
     <div class="section-bar">Interactive (v2)</div>
     <div class="grid-2-col">
         <div class="module"><span class="mod-code">[accordion title=X]..[/accordion]</span><span class="mod-desc">EXPAND</span></div>
