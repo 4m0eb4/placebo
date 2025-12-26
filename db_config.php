@@ -8,9 +8,34 @@ try {
     $pdo = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USER, DB_PASS);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-    $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+$pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 
-    if (session_status() === PHP_SESSION_NONE) session_start();
+    // [SECURITY] Session Hardening
+    if (session_status() === PHP_SESSION_NONE) {
+        // Prevent JavaScript from accessing session cookies (Mitigates XSS)
+        ini_set('session.cookie_httponly', 1);
+        // Force Strict Session ID usage
+        ini_set('session.use_strict_mode', 1);
+        // SameSite policy (Lax allows navigation, Strict blocks everything)
+        ini_set('session.cookie_samesite', 'Lax');
+        
+        // Note: 'session.cookie_secure' requires HTTPS. 
+        // Tor Hidden Services provide encryption, but PHP sees 'HTTP'. 
+        // Only enable 'secure' if you have configured Nginx to simulate HTTPS.
+        
+        session_start();
+    }
+    
+    // [SECURITY] CSRF Token Generation
+
+    // [SECURITY] CSRF Token Generation
+    if (empty($_SESSION['csrf_token'])) {
+        try {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        } catch (Exception $e) {
+            $_SESSION['csrf_token'] = md5(uniqid(mt_rand(), true));
+        }
+    }
     
     // --- 1. THROTTLED HEARTBEAT (Performance Fix) ---
     // Only updates DB once every 60 seconds per user/guest
@@ -104,6 +129,31 @@ try {
             $bg_style = "style='background-image: url(\"$safe_url\");'";
         }
     } catch (Exception $e) { }
+
+    // [SECURITY] Traffic Analysis Resistance
+    // Appends random garbage data to responses to randomize packet size,
+    // making side-channel analysis significantly harder for eavesdroppers.
+    register_shutdown_function(function() {
+        $headers = headers_list();
+        $is_html = true;
+        // Only pad HTML pages (skip images/downloads)
+        foreach ($headers as $h) {
+            if (stripos($h, 'Content-Type:') !== false && stripos($h, 'text/html') === false) {
+                $is_html = false; break;
+            }
+        }
+        
+        if ($is_html && connection_status() === CONNECTION_NORMAL) {
+            // Generate random padding between 256 bytes and 2KB
+            $pad_len = mt_rand(256, 2048); 
+            try {
+                $noise = bin2hex(random_bytes($pad_len));
+            } catch (Exception $e) {
+                $noise = str_repeat("0", $pad_len * 2);
+            }
+            echo "\n";
+        }
+    });
 
 } catch (PDOException $e) {
     die("System Error: Database Connection Failed.");

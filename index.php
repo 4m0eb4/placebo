@@ -104,11 +104,19 @@ $posts = $stmt->fetchAll();
             </div>
         </div>
         <div class="nav-links">
-            <?php if(isset($_SESSION['rank']) && $_SESSION['rank'] >= 9): ?>
-                <a href="admin_dash.php" style="color: var(--accent-secondary);">[ ADMIN ]</a>
-            <?php endif; ?>
-            <a href="settings.php" style="color:#d19a66; text-decoration:none;">( <?= htmlspecialchars($_SESSION['username'] ?? 'User') ?> )</a>
-            <a href="logout.php">LOGOUT</a>
+            <div class="dropdown">
+                <a href="profile.php?id=<?= $_SESSION['user_id'] ?? 0 ?>" style="color:#d19a66; font-weight:bold; cursor:default; padding: 10px 0;">
+                    [ <?= htmlspecialchars($_SESSION['username'] ?? 'IDENTITY') ?> ▼ ]
+                </a>
+                <div class="dropdown-content">
+                    <a href="profile.php?id=<?= $_SESSION['user_id'] ?? 0 ?>">MY PROFILE</a>
+                    <a href="settings.php">SETTINGS</a>
+                    <?php if(isset($_SESSION['rank']) && $_SESSION['rank'] >= 9): ?>
+                        <a href="admin_dash.php" style="color: var(--accent-secondary);">ADMIN PANEL</a>
+                    <?php endif; ?>
+                    <a href="logout.php" style="color: #e06c75;">LOGOUT</a>
+                </div>
+            </div>
         </div>
     </div>
 

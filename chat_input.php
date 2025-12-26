@@ -73,6 +73,11 @@ if (!$chan_conf) { $chan_conf = ['is_locked'=>0, 'slow_mode'=>0, 'write_rank'=>1
 $is_locked = ($chan_conf['is_locked'] == 1);
 $lock_req  = 9; 
 $slow_sec  = (int)$chan_conf['slow_mode'];
+
+// [HELPER] Reference Arrays
+$h_emoji = [':)'=>'😊',':('=>'☹️',':D'=>'😃',';)'=>'😉','<3'=>'❤️',':fire:'=>'🔥',':skull:'=>'💀',':cool:'=>'😎',':check:'=>'✅',':x:'=>'❌'];
+$h_bb = ['[b]'=>'Bold','[i]'=>'Italic','[u]'=>'Under','[s]'=>'Strike','[spoiler]'=>'Hide','[code]'=>'Code','[quote]'=>'Quote','[color=red]'=>'Red'];
+$h_cmd = ['/roll'=>'Roll','/cointoss'=>'Flip','/me'=>'Act','/reverse'=>'Rev','/whisper "U" M'=>'PM'];
 $write_req = (int)$chan_conf['write_rank'];
 
 $my_rank   = $_SESSION['rank'] ?? 1;
@@ -374,7 +379,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     <?php else: ?>
         
+        <input type="checkbox" id="helper-toggle" class="helper-toggle">
+        <div class="helper-drawer">
+            <div style="font-weight:bold; color:#6a9c6a; padding-bottom:5px; border-bottom:1px solid #333; margin-bottom:5px;">// SIGNAL CODES</div>
+            
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(80px, 1fr)); gap:5px;">
+                <?php foreach($h_emoji as $k=>$v) echo "<div class='code-item' title='Emoji'>$v <span style='color:#555;'>$k</span></div>"; ?>
+                <?php foreach($h_bb as $k=>$v) echo "<div class='code-item' title='$v'>$k</div>"; ?>
+                <?php foreach($h_cmd as $k=>$v) echo "<div class='code-item' title='$v'>$k</div>"; ?>
+            </div>
+        </div>
+
         <form method="POST" autocomplete="off">
+            <label for="helper-toggle" class="helper-btn" title="View Codes">?</label>
+
             <?php if($is_reply): ?>
                 <input type="hidden" name="quote_data" value="<?= "\n[quote=" . htmlspecialchars($reply_user) . "]" . htmlspecialchars($reply_text) . "[/quote]" ?>">
             <?php endif; ?>

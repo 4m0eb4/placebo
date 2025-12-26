@@ -67,8 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // 2. PGP Update
-    if (isset($_POST['pgp_key']) && trim($_POST['pgp_key']) !== '') {
+    // 2. PGP Update (Allowed clearing)
+    if (isset($_POST['pgp_key'])) {
         $new_pgp = trim($_POST['pgp_key']);
         $pdo->prepare("UPDATE users SET pgp_public_key = ? WHERE id = ?")->execute([$new_pgp, $_SESSION['user_id']]);
         $user['pgp_public_key'] = $new_pgp;

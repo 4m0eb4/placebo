@@ -10,6 +10,10 @@ header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 header('Connection: keep-alive');
 
+// [SECURITY] Strict Content Security Policy for Stream
+// Denies all scripts/objects. Only allows images/styles from self.
+header("Content-Security-Policy: default-src 'self'; script-src 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self';");
+
 session_start();
 require 'db_config.php';
 require 'bbcode.php';

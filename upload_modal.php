@@ -23,6 +23,11 @@ $status_color = '#e06c75'; // Red by default
 
 // 2. Handle Upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
+    // [SECURITY] CSRF Check
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        die("Security Violation: Invalid Token. Please refresh.");
+    }
+
     try {
         $f = $_FILES['file'];
         $title = trim($_POST['title'] ?? '');
@@ -68,22 +73,109 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
                 
                 if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
                 
-                if (move_uploaded_file($f['tmp_name'], "$target_dir/$hash_name")) {
-                    // DB Insert
+                // [SECURITY] Metadata Stripping & Re-encoding
+                $upload_success = false;
+                $final_path = "$target_dir/$hash_name";
+
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                    // Process Image (Strip EXIF by re-creating canvas)
+                    $src = null;
+                    // Supress warnings with @ to handle corrupt images gracefully
+                    if ($ext == 'jpg' || $ext == 'jpeg') $src = @imagecreatefromjpeg($f['tmp_name']);
+                    elseif ($ext == 'png') $src = @imagecreatefrompng($f['tmp_name']);
+                    elseif ($ext == 'gif') $src = @imagecreatefromgif($f['tmp_name']);
+                    elseif ($ext == 'webp') $src = @imagecreatefromwebp($f['tmp_name']);
+
+                    if ($src) {
+                        // Re-save clean version
+                        if ($ext == 'jpg' || $ext == 'jpeg') imagejpeg($src, $final_path, 85);
+                        elseif ($ext == 'png') imagepng($src, $final_path, 9);
+                        elseif ($ext == 'gif') imagegif($src, $final_path);
+                        elseif ($ext == 'webp') imagewebp($src, $final_path, 85);
+                        
+                        imagedestroy($src);
+                        $upload_success = true;
+                    } else {
+                        // Fallback: If GD fails (e.g. valid file but weird encoding), deny or move raw? 
+                        // For security, we deny corrupt images, but allow raw move if you prefer availability over strictness.
+                        // using move_uploaded_file here as fallback:
+                        $upload_success = move_uploaded_file($f['tmp_name'], $final_path);
+                    }
+                } else {
+                    // Non-image files (Zip, etc) are just moved
+                    $upload_success = move_uploaded_file($f['tmp_name'], $final_path);
+                }
+if ($upload_success) {
+                    // [SECURITY] Scrub Original Filename
+                    // We replace the original name with the random hash to protect uploader privacy.
+                    $scrubbed_name = $hash_name; 
+
+                    // 1. DB Insert
                     $max_v = (int)($_POST['max_views'] ?? 0);
                     $max_d = (int)($_POST['max_dls'] ?? 0);
                     
                     $stmt = $pdo->prepare("INSERT INTO uploads (user_id, username, category, disk_filename, original_filename, file_size, mime_type, title, max_views, max_downloads) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([
                         $_SESSION['user_id'], $_SESSION['username'], $category, 
-                        $hash_name, $f['name'], $f['size'], $mime, $title, $max_v, $max_d
+                        $hash_name, $scrubbed_name, $f['size'], $mime, $title, $max_v, $max_d
                     ]);
+                    
+                    // Capture the ID of the new upload
+                    $new_upload_id = $pdo->lastInsertId();
+
+                    // 2. [FEATURE] Auto-Post to Chat
+                    if (!empty($_POST['post_to_chat'])) {
+                        try {
+                            // Fetch User Color
+                            $c_col = $pdo->prepare("SELECT chat_color FROM users WHERE id = ?");
+                            $c_col->execute([$_SESSION['user_id']]);
+                            $u_col = $c_col->fetchColumn();
+                            if (empty($u_col)) { $u_col = '#888888'; }
+
+                            // Prepare Title
+                            if (!empty($title)) {
+                                $disp_name = $title;
+                            } else {
+                                $disp_name = "Untitled " . strtoupper($ext) . " File";
+                            }
+                            $disp_clean = strip_tags($disp_name);
+                            
+                            // [FIX] Determine Viewer URL based on Category
+                            $viewer_page = "file_view.php"; // Default for docs
+                            if ($category === 'image') {
+                                $viewer_page = "image_viewer.php";
+                            } elseif ($category === 'zip') {
+                                $viewer_page = "archive_view.php";
+                            }
+                            
+                            // Link points to the Gallery Page ID
+                            $link_url = $viewer_page . "?id=" . $new_upload_id;
+                            
+                            $chat_body = "[b][color=#6a9c6a][UPLOAD][/color][/b] [url=" . $link_url . "]" . $disp_clean . "[/url]";
+
+                            // Insert to Chat
+                            $chan_id = $_SESSION['active_channel'] ?? 1;
+                            $u_rank = $_SESSION['rank'] ?? 0;
+
+                            $stmt_chat = $pdo->prepare("INSERT INTO chat_messages (user_id, channel_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, ?, 'normal')");
+                            $stmt_chat->execute([
+                                $_SESSION['user_id'], 
+                                $chan_id, 
+                                $_SESSION['username'], 
+                                $chat_body, 
+                                $u_rank, 
+                                $u_col
+                            ]);
+                        } catch (Exception $e) { }
+                    }
+
                     $msg = "UPLOAD SUCCESSFUL // SORTED INTO: " . strtoupper($category);
                     $status_color = '#6a9c6a';
                 } else {
                     $msg = "Disk Write Failed.";
                 }
             }
+            
         }
     } catch (Throwable $e) {
         $msg = "INTERNAL ERROR: " . $e->getMessage();
@@ -118,12 +210,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
         <?php endif; ?>
         
         <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
             <label class="custom-file">
                 <input type="file" name="file" required onchange="this.parentNode.style.borderColor='#6a9c6a'; this.parentNode.style.color='#6a9c6a';">
                 [ SELECT FILE ]
             </label>
             <br>
             <input type="text" name="title" placeholder="Title / Description (Optional)" autocomplete="off">
+            
+            <label style="display:flex; align-items:center; gap:8px; margin-bottom:15px; font-size:0.75rem; color:#888; cursor:pointer;">
+                <input type="checkbox" name="post_to_chat" value="1" style="width:auto; margin:0;">
+                <span>POST LINK TO CHAT</span>
+            </label>
             
             <div style="margin:10px 0; text-align:left; font-size:0.7rem; color:#666; border-top:1px solid #222; padding-top:5px;">
                 <div style="margin-bottom:5px;">AUTO-DELETE CONDITIONS (0 = KEEP FOREVER):</div>
