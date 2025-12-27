@@ -60,6 +60,43 @@ function to_pastel($hex) {
     return sprintf("#%02x%02x%02x", $r, $g, $b);
 }
 
+// --- MENTION LOGIC (CACHED) ---
+$mention_style_cache = [];
+
+function process_mentions($text, $pdo) {
+    global $mention_style_cache;
+    
+    return preg_replace_callback('/@([a-zA-Z0-9_]+)/', function($matches) use ($pdo, &$mention_style_cache) {
+        $name = $matches[1];
+        
+        if (!isset($mention_style_cache[$name])) {
+            // Fetch style from DB
+            $stmt = $pdo->prepare("SELECT chat_color FROM users WHERE username = ? LIMIT 1");
+            $stmt->execute([$name]);
+            $raw = $stmt->fetchColumn();
+            
+            // Apply Auto-Paint Logic if no custom style
+            if (empty($raw) || $raw === '#888888') {
+                $hash = md5($name);
+                $r = 120 + (hexdec(substr($hash, 0, 2)) % 135);
+                $g = 120 + (hexdec(substr($hash, 2, 2)) % 135);
+                $b = 120 + (hexdec(substr($hash, 4, 2)) % 135);
+                $raw = sprintf("#%02x%02x%02x", $r, $g, $b);
+            }
+            
+            $mention_style_cache[$name] = $raw;
+        }
+
+        $style = $mention_style_cache[$name];
+        
+        // Determine if style is full CSS or just Hex
+        $final_css = (strpos($style, ':') !== false) ? $style : "color: $style";
+        
+        // Render styled mention
+        return "<span style='font-weight:bold; $final_css'>@$name</span>";
+    }, $text);
+}
+
 // --- RENDER FUNCTION ---
 function render_update($row, $rank, $presets) {
     $unique_suffix = "_" . bin2hex(random_bytes(3)); 
@@ -132,14 +169,32 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
               </div>";
         return; 
     }
+// 2. SYSTEM / BROADCAST / ADMIN ALERT LOGIC
+    $m_type = $row['msg_type'] ?? 'normal';
+    
+    if ($m_type === 'system' || $m_type === 'broadcast' || $m_type === 'admin_alert') {
+        
+        // SECURITY: Hide Admin Alerts from non-staff
+        if ($m_type === 'admin_alert') {
+            if ($viewer_rank < 5) return; // INVISIBLE TO USERS
+            
+            // [FIX] Define Delete Button for Admin Alerts (Fixes Undefined Variable Error)
+            $del_btn = ($viewer_rank >= 9) ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' style='color:#e06c75; margin-left:10px; text-decoration:none;'>[x]</a>" : "";
+            
+            // Render Admin Alert Style
+            echo "<div class='msg-row sys-msg' id='$dom_id' style='border: 1px dashed #e06c75; background: #110505; color: #e06c75; opacity: 0.8; order: {$row['id']};'>
+                    <strong>[SECURITY]</strong>
+                    <div style='font-family:monospace; font-size:0.75rem;'>" . parse_bbcode($row['message']) . "</div>
+                    $del_btn
+                  </div>";
+            return;
+        }
 
-    // 2. SYSTEM / BROADCAST LOGIC
-    if (($row['msg_type'] ?? 'normal') === 'system' || ($row['msg_type'] ?? 'normal') === 'broadcast') {
-        $is_broadcast = ($row['msg_type'] === 'broadcast');
+        $is_broadcast = ($m_type === 'broadcast');
         
         if ($is_broadcast) {
             $c_border = (isset($row['color_hex']) && strlen($row['color_hex']) >= 4) ? $row['color_hex'] : '#333';
-            $c_bg = "#111"; // Simplified for safety
+            $c_bg = "#111"; 
             $c_text = $c_border;
             $label = $row['username'] ?? ''; 
         } else {
@@ -215,9 +270,17 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
     $clean_inner = (strpos($raw_style, ';') !== false) ? str_replace($raw_style, '', $inner_html) : $inner_html;
     if(empty($clean_inner)) $clean_inner = $row['username'];
 
-    $user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner</div>";
+    // [UI] Clickable Profile Link (Registered Only)
+    if ($row['user_id'] > 0) {
+        // Opens profile in new window/tab to act as a "modal" without breaking stream
+        $user_display_html = "<a href='profile.php?id={$row['user_id']}' target='_blank' class='col-user' style='text-decoration:none; cursor:pointer; $wrapper_style'>$clean_inner</a>";
+    } else {
+$user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner</div>";
     $time = date('H:i', strtotime($row['created_at']));
+    
+    // [FIX] Process Mentions + BBCode
     $text = parse_bbcode($row['message']);
+    $text = process_mentions($text, $pdo);
     
     // Interactions
     $clean_text = trim(strip_tags(preg_replace('/\[quote(?:=.*?)?\].*?\[\/quote\]/s', '', $row['message'])));

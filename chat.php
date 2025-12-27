@@ -371,7 +371,16 @@ try {
                 <?php endif; ?>
                 
                 <label for="rules-modal-toggle" class="opt-btn">[ RULES ]</label>
-                <label for="users-modal-toggle" class="opt-btn">[ ONLINE USERS ]</label>
+
+                <?php
+                // [FEATURE] New User Glow Check
+                $glow_class = "";
+                try {
+                    $chk_new = $pdo->query("SELECT COUNT(*) FROM users WHERE created_at > (NOW() - INTERVAL 5 MINUTE)")->fetchColumn();
+                    if ($chk_new > 0) $glow_class = "new-user-glow";
+                } catch (Exception $e) {}
+                ?>
+                <label for="users-modal-toggle" class="opt-btn <?= $glow_class ?>">[ ONLINE USERS ]</label>
                 
                 <?php 
                 // Fetch dynamic permission requirement (re-using existing config fetch if available, or defaulting)

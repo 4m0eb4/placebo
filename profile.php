@@ -115,7 +115,7 @@ $rank_color = match((int)$profile['rank']) {
                 $my_r = $_SESSION['rank'] ?? 0;
             ?>
 
-            <?php if($my_r >= 5 && $id != $_SESSION['user_id']): ?>
+            <?php if($my_r >= 5 && $id != $_SESSION['user_id'] && $profile['rank'] < $my_r): ?>
                 <div style="margin-top: 40px; border-top: 1px dashed #e06c75; padding-top: 20px;">
                     <h4 style="color: #e06c75; margin-top: 0;">ADMIN CONTROL</h4>
                     <form method="POST" action="admin_exec.php" style="display:flex; flex-wrap:wrap; gap: 10px;">

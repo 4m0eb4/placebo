@@ -39,8 +39,9 @@ try {
     }
 
     // STRICTER FILTER: Only active within 15 minutes (Real-time feel)
+    // ADDED: created_at for New User Detection
     $stmt = $pdo->query("
-        SELECT id, username, rank, chat_color, user_status, show_online, last_active, is_muted, slow_mode_override,
+        SELECT id, username, rank, chat_color, user_status, show_online, last_active, created_at, is_muted, slow_mode_override,
                (CASE WHEN last_active > (NOW() - INTERVAL 5 MINUTE) THEN 1 ELSE 0 END) as is_live
         FROM users 
         WHERE last_active > (NOW() - INTERVAL 15 MINUTE)
@@ -217,9 +218,15 @@ try {
                     }
                 }
             ?>
-            <div class="row" style="opacity: <?= $opacity ?>;">
+            <?php 
+                // NEW USER CHECK (Registered < 10 mins ago)
+                $is_new = (strtotime($u['created_at']) > (time() - 600));
+                $row_style = $is_new ? "border-left: 2px solid #e06c75; background: #120505;" : "";
+            ?>
+            <div class="row" style="opacity: <?= $opacity ?>; <?= $row_style ?>">
                 <div class="info-col">
                     <div>
+                        <?php if($is_new): ?><span class="new-tag">NEW</span><?php endif; ?>
                         <a href="profile.php?id=<?= $u['id'] ?>" target="_blank" class="username-link" style="<?= $wrapper_style ?>">
                             <?= $inner_html ?>
                         </a>
@@ -256,6 +263,7 @@ try {
 
                     <?php if($my_rank >= $req_kick && $u['rank'] < $my_rank): ?>
                          <form action="admin_exec.php" method="POST" style="display:flex; align-items:center; gap:3px; margin:0;">
+                            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                             <input type="hidden" name="target_id" value="<?= $u['id'] ?>">
                             <input type="hidden" name="target_name" value="<?= htmlspecialchars($u['username']) ?>">
                             <input type="hidden" name="return_to" value="users_online.php">
@@ -310,8 +318,9 @@ try {
                 </div>
 
                 <div class="actions-col">
-                    <?php if($my_rank >= 9): ?>
+<?php if($my_rank >= 9): ?>
                          <form action="admin_exec.php" method="POST" style="display:flex; align-items:center; gap:3px; margin:0;">
+                            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
                             <input type="hidden" name="target_id" value="<?= $g['id'] ?>">
                             <input type="hidden" name="target_name" value="<?= htmlspecialchars($g['username']) ?>">
                             <input type="hidden" name="target_type" value="guest">

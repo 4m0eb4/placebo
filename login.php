@@ -99,6 +99,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['username'] = $user['username'];
+                
+                // [FEATURE] SILENT ADMIN ALERT
+                try {
+                    $log_msg = "User Login: [b]" . $user['username'] . "[/b] (ID: " . $user['id'] . ")";
+                    $stmt_log = $pdo->prepare("INSERT INTO chat_messages (username, message, msg_type, created_at) VALUES ('SYSTEM', ?, 'admin_alert', NOW())");
+                    $stmt_log->execute([$log_msg]);
+                } catch (Exception $e) {}
                 $_SESSION['pgp_key'] = $user['pgp_public_key'];
                 // UPDATED: Store rank in session
                 $_SESSION['rank'] = (int)$user['rank'];

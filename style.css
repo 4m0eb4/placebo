@@ -1156,4 +1156,29 @@ body.theme-matrix {
     font-family: 'Courier New', monospace;
     letter-spacing: -1px;
     font-weight: bold;
+
+}
+
+/* --- NEW USER ALERTS --- */
+@keyframes neon-pulse {
+    0% { box-shadow: 0 0 5px #e06c75; border-color: #e06c75; color: #fff; }
+    50% { box-shadow: 0 0 15px #e06c75; border-color: #ff9999; color: #ff9999; }
+    100% { box-shadow: 0 0 5px #e06c75; border-color: #e06c75; color: #fff; }
+}
+
+.new-user-glow {
+    animation: neon-pulse 2s infinite ease-in-out;
+    border: 1px solid #e06c75 !important;
+    background: #1a0505 !important;
+}
+
+.new-tag {
+    font-size: 0.6rem;
+    background: #e06c75;
+    color: #000;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-weight: bold;
+    margin-left: 5px;
+    vertical-align: middle;
 }

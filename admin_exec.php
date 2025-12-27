@@ -5,6 +5,13 @@ require 'db_config.php';
 // 1. AUTH CHECK
 if (!isset($_SESSION['fully_authenticated'])) { die("AUTH REQUIRED"); }
 
+// [SECURITY] CSRF TOKEN VERIFICATION
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (empty($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        die("SECURITY ALERT: CSRF TOKEN MISMATCH. REFRESH THE PAGE.");
+    }
+}
+
 // 2. FETCH PERMS
 $s_stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'permissions_config'");
 $perms = json_decode($s_stmt->fetchColumn() ?: '{}', true);
@@ -76,9 +83,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['confirmed'])) {
 // 4. EXECUTION HANDLER (Confirmed = 1)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmed'])) {
     
-    $tid = (int)($_POST['target_id'] ?? 0);
+$tid = (int)($_POST['target_id'] ?? 0);
     $return = $_POST['return_to'] ?? 'mod_panel.php';
     $type = $_POST['target_type'] ?? 'user';
+
+    // --- SECURITY: HIERARCHY ENFORCEMENT ---
+    // Prevent actions against users with equal or higher rank
+    if ($type !== 'guest') {
+        $tr_stmt = $pdo->prepare("SELECT rank FROM users WHERE id = ?");
+        $tr_stmt->execute([$tid]);
+        $target_rank = (int)$tr_stmt->fetchColumn();
+        
+        if ($target_rank >= $my_rank) {
+            die("ACCESS DENIED: TARGET IMMUNITY (RANK $target_rank vs YOUR $my_rank)");
+        }
+    }
+
+    // AUTO-PATCH: Ensure Guest Table has required columns (Fixes 500 Error on Mute/Slow)
 
     // AUTO-PATCH: Ensure Guest Table has required columns (Fixes 500 Error on Mute/Slow)
     if ($type === 'guest') {
