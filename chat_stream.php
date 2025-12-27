@@ -27,7 +27,9 @@ $recycle_limit = 900;
 if (!isset($_SESSION['fully_authenticated'])) die();
 
 $my_rank = $_SESSION['rank'] ?? 1;
+$theme_cls = $_SESSION['theme'] ?? '';
 $last_id = 0;
+$last_pin_dom_id = null;
 
 // Initialize Signal Tracker
 $stmt_sig = $pdo->query("SELECT MAX(id) FROM chat_signals");
@@ -163,7 +165,18 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
     }
 
     // 3. NORMAL MESSAGE LOGIC
-    $raw_style = $row['color_hex'] ?? '#888888';
+    // [FIX] Use LIVE color if available (for registered users), else fallback to snapshot
+    $raw_style = (!empty($row['live_color']) && $row['user_id'] > 0) ? $row['live_color'] : ($row['color_hex'] ?? '');
+
+    // [AUTO-PAINT] Generate bright unique color if none set
+    if (empty($raw_style) || $raw_style === '#888888') {
+        $hash = md5($row['username']);
+        $r = 120 + (hexdec(substr($hash, 0, 2)) % 135);
+        $g = 120 + (hexdec(substr($hash, 2, 2)) % 135);
+        $b = 120 + (hexdec(substr($hash, 4, 2)) % 135);
+        $raw_style = sprintf("#%02x%02x%02x", $r, $g, $b);
+    }
+
     $msg_color = '#ccc'; 
     $wrapper_style = "";
     $inner_html = "";
@@ -172,11 +185,27 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
     $raw_style = str_ireplace(['url(', 'http:', 'https:', 'ftp:', 'data:', 'expression'], '', $raw_style);
 
     // Name Style Logic
-    if (strpos($raw_style, ';') !== false || strpos($raw_style, ':') !== false) {
+    if (strpos($raw_style, '[') !== false) {
+        // [FIX] BBCode Detected (e.g. Rainbow). Do NOT set wrapper style (avoids broken CSS).
+        // Let the parse_bbcode function handle the styling via inner HTML spans.
+        $wrapper_style = ""; 
+        $inner_html = parse_bbcode(str_replace('{u}', $row['username'], $raw_style));
+        
+        // Attempt to extract a hex color for the message text if one exists inside the BBCode
+        if (preg_match('/(#[a-f0-9]{3,6})/i', $raw_style, $m)) { $msg_color = to_pastel($m[1]); }
+        
+    } elseif (strpos($raw_style, ';') !== false || strpos($raw_style, ':') !== false) {
+        // Complex CSS (e.g. background: ...; color: ...)
         $wrapper_style = $raw_style;
-        $inner_html = (strpos($raw_style, '[') !== false) ? parse_bbcode(str_replace('{u}', $row['username'], $raw_style)) : $row['username'];
-        if (preg_match('/color:\s*(#[a-f0-9]{3,6})/i', $raw_style, $m)) $msg_color = to_pastel($m[1]);
+        $inner_html = $row['username'];
+        
+        if (preg_match('/color:\s*(#[a-f0-9]{3,6})/i', $raw_style, $m)) {
+            $msg_color = to_pastel($m[1]);
+        } elseif (preg_match('/(#[a-f0-9]{3,6})/i', $raw_style, $m)) {
+            $msg_color = to_pastel($m[1]);
+        }
     } else {
+        // Simple Hex Color
         $wrapper_style = "color: " . $raw_style;
         $inner_html = $row['username'];
         $msg_color = to_pastel($raw_style);
@@ -267,8 +296,15 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
 try {
     // --- INITIAL HISTORY LOAD ---
     $cid = $_SESSION['active_channel'] ?? 1;
-    // Filter by Channel ID
-    $stmt = $pdo->prepare("SELECT * FROM (SELECT * FROM chat_messages WHERE channel_id = ? ORDER BY id DESC LIMIT 50) sub ORDER BY id ASC");
+    // [FIX] LEFT JOIN users to get LIVE color updates (fixes stale colors)
+    $stmt = $pdo->prepare("
+        SELECT sub.*, u.color_hex AS live_color 
+        FROM (
+            SELECT * FROM chat_messages WHERE channel_id = ? ORDER BY id DESC LIMIT 50
+        ) sub 
+        LEFT JOIN users u ON sub.user_id = u.id 
+        ORDER BY sub.id ASC
+    ");
     $stmt->execute([$cid]);
     $history = $stmt->fetchAll();
     foreach($history as $msg) {
@@ -293,7 +329,7 @@ try {
 
     while (true) {
         // PERFORMANCE: Auto-exit to recycle worker
-        if ((time() - $start_time) > $recycle_time) {
+        if ((time() - $start_time) > $recycle_limit) {
             exit; 
         }
 
@@ -429,8 +465,14 @@ try {
 
         // 3. New Messages (Throttled)
         $cid = $_SESSION['active_channel'] ?? 1;
-        // Added LIMIT 50 to prevent massive rendering spikes if connection lagged
-        $stmt = $pdo->prepare("SELECT * FROM chat_messages WHERE id > ? AND channel_id = ? ORDER BY id ASC LIMIT 50");
+        // [FIX] LEFT JOIN users to get LIVE color updates
+        $stmt = $pdo->prepare("
+            SELECT m.*, u.color_hex AS live_color 
+            FROM chat_messages m 
+            LEFT JOIN users u ON m.user_id = u.id 
+            WHERE m.id > ? AND m.channel_id = ? 
+            ORDER BY m.id ASC LIMIT 50
+        ");
         $stmt->execute([$last_id, $cid]);
         $new = $stmt->fetchAll();
         foreach($new as $msg) {
@@ -449,7 +491,12 @@ try {
             $target = (int)$sig['signal_val'];
 
             if ($sig['signal_type'] === 'DELETE') {
-                echo "<style>div[id^='msg_{$target}'] { display: none !important; }</style>";
+                // [FIX] Use strict selectors (Exact Match OR Underscore Prefix)
+                // Prevents deleting msg #1 from hiding msg #100
+                echo "<style>
+                    div[id='msg_{$target}'] { display: none !important; }
+                    div[id^='msg_{$target}_'] { display: none !important; }
+                </style>";
             }
             if ($sig['signal_type'] === 'PURGE') {
                 echo "<style>div[id^='msg_'] { display: none !important; }</style>";

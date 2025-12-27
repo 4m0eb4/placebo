@@ -92,44 +92,43 @@ if ($target_id) {
             width: 100%;
             margin: 0;
             padding: 0;
-            background: #0d0d0d;
-            overflow: hidden; /* Prevent double scrollbars */
+            background: transparent; /* [FIX] Allow wallpaper to show */
+            overflow: hidden; 
             font-family: monospace;
         }
 
-        .layout-root {
+.layout-root {
             display: flex;
             flex-direction: column;
             height: 100%;
             width: 100%;
-            max-width: 1000px; /* Optional Constraint */
+            max-width: 1000px; 
             margin: 0 auto;
             border-left: 1px solid #222;
             border-right: 1px solid #222;
-            background: #0d0d0d;
+            background: transparent; /* [FIX] Fully clear to match Main Chat */
         }
-
         /* Fixed Top Bar */
         .layout-header {
-            flex: 0 0 auto; /* Don't shrink */
-            background: #161616;
+            flex: 0 0 auto; 
+            background: rgba(22, 22, 22, 0.95); /* [FIX] Transparent Header */
             border-bottom: 1px solid #333;
             padding: 10px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 50px; /* Explicit height helps calculation */
+            height: 50px; 
             box-sizing: border-box;
         }
 
         /* Flexible Content Area */
         .layout-content {
-            flex: 1; /* Take all remaining height */
-            position: relative; /* Anchor for absolute children */
+            flex: 1; 
+            position: relative; 
             display: flex;
             flex-direction: column;
-            min-height: 0; /* Firefox Flexbox Fix */
-            background: #0d0d0d;
+            min-height: 0; 
+            background: transparent; /* [FIX] Inherit root transparency */
         }
 
         /* INBOX LIST SCROLL */
@@ -140,13 +139,11 @@ if ($target_id) {
         }
 
         /* CHAT IFRAME CONTAINER */
-        /* This is the magic fix. We force this container to fill the flex space,
-           then absolute position the iframe inside it. */
         .stream-wrapper {
             flex: 1; 
             position: relative; 
             min-height: 0; 
-            background: #000;
+            background: rgba(0, 0, 0, 0.7); /* [FIX] Darker tint for chat messages */
         }
 
         .iframe-fullscreen {
@@ -157,13 +154,14 @@ if ($target_id) {
             height: 100%;
             border: none;
             display: block;
+            background: transparent; /* [FIX] Ensure iframes don't block bg */
         }
 
         /* INPUT AREA */
         .input-wrapper {
-            flex: 0 0 105px; /* Fixed height for input */
+            flex: 0 0 105px; 
             border-top: 1px solid #333;
-            background: #111;
+            background: rgba(17, 17, 17, 0.95); /* [FIX] Transparent Input Area */
             position: relative;
         }
 

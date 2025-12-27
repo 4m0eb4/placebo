@@ -167,7 +167,7 @@ try {
 
     <input type="checkbox" id="invite-modal-toggle" class="modal-toggle">
     <div class="modal-overlay">
-        <div class="modal-box" style="height: 250px; max-width: 350px;">
+        <div class="modal-box" style="height: 700px; max-width: 600px;">
             <div class="modal-header">
                 <span>INVITE SYSTEM</span>
                 <label for="invite-modal-toggle" class="modal-close">[ CLOSE ]</label>
@@ -395,8 +395,10 @@ try {
                 <?php endif; ?>
                 
                 <a href="chat_input.php" target="chat_input" class="opt-btn">[ REFRESH ]</a>
+                
+                <iframe src="chat_status.php" style="width:450px; height:34px; border:none; overflow:hidden; margin-left:auto;" scrolling="no"></iframe>
 
-                <span style="margin-left:auto; color:#333;">p.l.a.c.e.b.o.</span>
+                <span style="margin-left:15px; color:#333;">p.l.a.c.e.b.o.</span>
             </div>
 
             <div class="status-buffer"></div>
