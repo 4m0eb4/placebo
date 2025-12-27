@@ -20,6 +20,10 @@ require 'bbcode.php';
 // KEY: Release session lock immediately
 session_write_close();
 
+// PERFORMANCE: Recycle stream every 15 mins (900s) - RELAXED for background tabs
+$start_time = time();
+$recycle_limit = 900;
+
 if (!isset($_SESSION['fully_authenticated'])) die();
 
 $my_rank = $_SESSION['rank'] ?? 1;
@@ -75,30 +79,26 @@ function render_update($row, $rank, $presets) {
 
 // --- CORE DISPLAY FUNCTION ---
 function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
-    global $pdo; // REQUIRED for name lookup
+    global $pdo; 
     $my_id = $_SESSION['user_id'] ?? $_SESSION['guest_token_id'] ?? 0;
-// --- WHISPER LOGIC & RENDERING ---
+    
+    // 1. WHISPER LOGIC
     if (($row['msg_type'] ?? '') === 'whisper') {
         $curr_type = (isset($_SESSION['is_guest']) && $_SESSION['is_guest']) ? 'guest' : 'user';
         $my_real_id = (int)($curr_type === 'guest' ? ($_SESSION['guest_token_id'] ?? 0) : ($_SESSION['user_id'] ?? 0));
         
-        // [FIX] SENDER CHECK:
-        // If message user_id is 0, it's a Guest Sender. We verify by matching Username.
-        // If message user_id > 0, it's a User Sender. We match by ID.
+        // Validate Sender/Receiver
         if ($row['user_id'] == 0) {
             $is_sender = ($row['username'] === ($_SESSION['username'] ?? ''));
         } else {
             $is_sender = ($row['user_id'] == $my_real_id);
         }
-
-        // [FIX] TARGET CHECK:
-        // Ensure strictly typed integer comparison
         $is_target = ((int)$row['target_id'] === $my_real_id && $row['target_type'] === $curr_type);
         
-        // Hide if not involved (and not Admin Rank 9)
+        // Hide if not involved (Admin Rank 9 exception)
         if (!$is_sender && !$is_target && $viewer_rank < 9) return;
 
-        // Determine Label
+        // Labels
         if ($is_sender) {
             $t_name = "Unknown";
             try {
@@ -117,197 +117,102 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
             $w_label = "WHISPER FROM " . htmlspecialchars($row['username']);
         }
 
-        // Delete Button Logic (Sender or Admin)
         $can_del = ($is_sender || $viewer_rank >= 9);
-        $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' style='color:#e06c75; font-weight:bold; text-decoration:none; margin-left:10px; float:right;' title='Delete Whisper'>[x]</a>" : "";
-
-        $w_color = "#c678dd"; 
-        $w_bg    = "#1a051a"; 
+        $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' style='color:#e06c75; font-weight:bold; text-decoration:none; margin-left:10px; float:right;' title='Delete'>[x]</a>" : "";
         $msg_body = parse_bbcode($row['message']);
 
-        echo "<div class='msg-row' id='$dom_id' style='order: {$row['id']}; background: $w_bg; border-left: 3px solid $w_color; opacity: 0.95; padding-left:5px;'>
+        echo "<div class='msg-row' id='$dom_id' style='order: {$row['id']}; background: #1a051a; border-left: 3px solid #c678dd; opacity: 0.95; padding-left:5px;'>
                 <div class='col-time'>".date('H:i', strtotime($row['created_at']))."</div>
-                <div style='flex-grow:1; padding-left:10px; color:$w_color; font-size:0.75rem; word-break: break-word;'>
+                <div style='flex-grow:1; padding-left:10px; color:#c678dd; font-size:0.75rem; word-break: break-word;'>
                     <strong>[$w_label]</strong>: <span style='color:#e0e0e0;'>$msg_body</span>
                     $del_btn
                 </div>
               </div>";
         return; 
     }
+
+    // 2. SYSTEM / BROADCAST LOGIC
     if (($row['msg_type'] ?? 'normal') === 'system' || ($row['msg_type'] ?? 'normal') === 'broadcast') {
         $is_broadcast = ($row['msg_type'] === 'broadcast');
         
-        if (($row['msg_type'] ?? 'normal') === 'system' || ($row['msg_type'] ?? 'normal') === 'broadcast') {
-        $is_broadcast = ($row['msg_type'] === 'broadcast');
-        
         if ($is_broadcast) {
-            $c_border = (isset($row['color_hex']) && strlen($row['color_hex']) >= 4) ? $row['color_hex'] : '#333333';
-            $rgb = sscanf($c_border, "#%02x%02x%02x");
-            $c_bg = (isset($rgb[0]) && $rgb[0] !== null) ? "rgba({$rgb[0]}, {$rgb[1]}, {$rgb[2]}, 0.1)" : "#111";
+            $c_border = (isset($row['color_hex']) && strlen($row['color_hex']) >= 4) ? $row['color_hex'] : '#333';
+            $c_bg = "#111"; // Simplified for safety
             $c_text = $c_border;
             $label = $row['username'] ?? ''; 
         } else {
+            // System presets
             $c_border = "#e06c75"; $c_bg = "#220505"; $c_text = "#e06c75"; 
             if (strpos($row['message'], '[INFO]') !== false) { $c_border = "#61afef"; $c_bg = "#051020"; $c_text = "#61afef"; } 
             elseif (strpos($row['message'], '[SUCCESS]') !== false) { $c_border = "#98c379"; $c_bg = "#051505"; $c_text = "#98c379"; } 
             elseif (strpos($row['message'], '[CRITICAL]') !== false) { $c_border = "#c678dd"; $c_bg = "#1a051a"; $c_text = "#c678dd"; } 
             elseif (strpos($row['message'], '[MAINT]') !== false) { $c_border = "#e5c07b"; $c_bg = "#1a1005"; $c_text = "#e5c07b"; }
-            
-            // If the username field in DB is literally 'SYSTEM', and it's a 'system' type, 
-            // you can choose to hide it here by setting $label = '';
             $label = ($row['username'] === 'SYSTEM') ? '' : $row['username'];
         }
         
-        $label_html = !empty($label) ? "<strong style='background:$c_border; color:#000; padding:2px 6px; font-size:0.7rem; flex-shrink:0;'>[$label]</strong>" : "";
-        $alert_style = "border: 1px solid $c_border; background: $c_bg; color: $c_text;";
-        
-        $can_del = ($viewer_rank >= 9); // Specifically for system messages, Rank 9+ only
-        $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' class='sys-del-btn' title='Remove Broadcast'>[x]</a>" : "";
+        $label_html = !empty($label) ? "<strong style='background:$c_border; color:#000; padding:2px 6px; font-size:0.7rem;'>[$label]</strong>" : "";
+        $can_del = ($viewer_rank >= 9);
+        $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' style='color:$c_text; margin-left:10px; text-decoration:none;'>[x]</a>" : "";
 
-        echo "<div class='msg-row sys-msg' id='$dom_id' style='$alert_style display:flex; align-items:center; justify-content:center; gap:15px; order: {$row['id']}; position:relative;'>
+        echo "<div class='msg-row sys-msg' id='$dom_id' style='border: 1px solid $c_border; background: $c_bg; color: $c_text; display:flex; align-items:center; justify-content:center; gap:10px; order: {$row['id']};'>
                 $label_html
-                <div style='font-weight:bold; letter-spacing:0.5px; font-size:0.8rem;'>
-                    ".parse_bbcode($row['message'])."
-                </div>
+                <div style='font-weight:bold; font-size:0.8rem;'>".parse_bbcode($row['message'])."</div>
                 $del_btn
               </div>";
         return;
     }
-        return;
-    }
 
-$raw_style = $row['color_hex'] ?? '#888888';
+    // 3. NORMAL MESSAGE LOGIC
+    $raw_style = $row['color_hex'] ?? '#888888';
     $msg_color = '#ccc'; 
+    $wrapper_style = "";
+    $inner_html = "";
 
-    // SECURITY: Prevent deanonymization via CSS external resources
+    // Security Clean
     $raw_style = str_ireplace(['url(', 'http:', 'https:', 'ftp:', 'data:', 'expression'], '', $raw_style);
 
-    // LOGIC: Determine Content + Style
-    $inner_html = "";
-    $wrapper_style = "";
-
-    // CHECK: Is it a BBCode Template? (Contains {u} or brackets)
-    if (strpos($raw_style, '{u}') !== false || (str_starts_with(trim($raw_style), '[') && str_ends_with(trim($raw_style), ']'))) {
-        
-        $processed_name = str_replace('{u}', $row['username'], $raw_style);
-        if (strpos($raw_style, '{u}') === false) $processed_name = $raw_style . $row['username'];
-        
-        $inner_html = parse_bbcode($processed_name);
-        
-        // COLOR PRIORITY SYSTEM
-        // 1. Explicit Text Color (from DB)
-        // 2. Extracted from Name Style
-        // 3. Default Grey
-        
-        if (!empty($row['text_color'])) {
-            $msg_color = $row['text_color'];
-        } 
-        elseif (preg_match('/\[color=(#[a-f0-9]{3,6})\]/i', $raw_style, $matches)) {
-            $msg_color = to_pastel($matches[1]);
-        } 
-        else {
-            $msg_color = '#d0d0d0'; 
-        }
-
-    } else {
-        // CHECK: Is it CSS or Hex?
-// CHECK: Is it CSS or Hex?
+    // Name Style Logic
     if (strpos($raw_style, ';') !== false || strpos($raw_style, ':') !== false) {
-        // [FIX] Apply CSS wrapper but ALSO allow BBCode parsing inside the username
         $wrapper_style = $raw_style;
         $inner_html = (strpos($raw_style, '[') !== false) ? parse_bbcode(str_replace('{u}', $row['username'], $raw_style)) : $row['username'];
-        
-        // Extract color for message text if present in the CSS or BBCode
         if (preg_match('/color:\s*(#[a-f0-9]{3,6})/i', $raw_style, $m)) $msg_color = to_pastel($m[1]);
-        elseif (preg_match('/\[color=(#[a-f0-9]{3,6})\]/i', $raw_style, $m)) $msg_color = to_pastel($m[1]);
-        else $msg_color = '#d0d0d0';
     } else {
-            // It's a simple Hex code (e.g. "#ff0000")
-            $wrapper_style = "color: " . $raw_style;
-            $inner_html = $row['username'];
-            $msg_color = to_pastel($raw_style);
-        }
+        $wrapper_style = "color: " . $raw_style;
+        $inner_html = $row['username'];
+        $msg_color = to_pastel($raw_style);
     }
-
-    // [FIX] Strip the CSS properties from the inner HTML if they were accidentally parsed as text
+    
+    // Render clean name
     $clean_inner = (strpos($raw_style, ';') !== false) ? str_replace($raw_style, '', $inner_html) : $inner_html;
     if(empty($clean_inner)) $clean_inner = $row['username'];
 
-    // FINAL OUTPUT
     $user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner</div>";
-    
-    // --- STRAY BRACKET REMOVED HERE ---
-
     $time = date('H:i', strtotime($row['created_at']));
     $text = parse_bbcode($row['message']);
     
+    // Interactions
     $clean_text = trim(strip_tags(preg_replace('/\[quote(?:=.*?)?\].*?\[\/quote\]/s', '', $row['message'])));
     $reply_url = "chat_input.php?reply_user=" . urlencode($row['username']) . "&reply_text=" . urlencode($clean_text);
     
-    $react_links = "";
-    $base_act = "chat_action.php?react=1&id=" . $row['id'] . "&emoji=";
-    foreach($presets as $em) { 
-        $em = trim($em);
-        $react_links .= "<a href='{$base_act}" . urlencode($em) . "' target='chat_input' style='text-decoration:none; font-size:1.1rem;'>$em</a> ";
-    }
-
-    global $pdo; 
-    $react_display = "";
-    try {
-        $r_stmt = $pdo->prepare("SELECT emoji, COUNT(*) as c FROM chat_reactions WHERE message_id = ? GROUP BY emoji");
-        $r_stmt->execute([$row['id']]);
-        $reacts = $r_stmt->fetchAll();
-        if($reacts) {
-            $react_display = "<span style='margin-left:8px; display:inline-block;'>";
-            foreach($reacts as $r) {
-                $quick_act = "chat_action.php?react=1&id=" . $row['id'] . "&emoji=" . urlencode($r['emoji']);
-                $react_display .= "
-                <a href='$quick_act' target='chat_input' style='text-decoration:none; margin-right:4px;'>
-                    <span style='background:#111; border:1px solid #333; padding:1px 5px; font-size:0.7rem; border-radius:3px; color:#aaa; cursor:pointer;'>
-                        {$r['emoji']} <span style='color:#666; font-size:0.6rem; margin-left:2px;'>{$r['c']}</span>
-                    </span>
-                </a>";
-            }
-            $react_display .= "</span>";
-        }
-    } catch (Exception $e) {}
-
-    $is_mine = ($row['username'] === $_SESSION['username']);
+    $is_mine = ($row['username'] === ($_SESSION['username'] ?? ''));
     $can_del = ($viewer_rank >= 5 || $is_mine);
     $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' class='del-btn'>[x]</a>" : "";
 
-echo "
-    <div class='msg-row' id='$dom_id' style='order: {$row['id']};'>
-        <div class='col-time'>$time</div>
-        $user_display_html
-        <div class='col-text' style='color:$msg_color;'>
-            $text$react_display
-        </div>
-        <div class='col-act'>
-            <a href='$reply_url' target='chat_input' class='action-link'>[reply]</a>
-            <details class='react-box' style='display:inline-block;'>
-                <summary style='opacity:0.5; cursor:pointer; list-style:none;'>[+]</summary>
-                <div class='react-popup'>
-                    <div class='react-presets' style='display:flex; gap:8px; margin-bottom:5px; border-bottom:1px solid #333; padding-bottom:5px;'>
-                        $react_links
-                    </div>
-                    <form action='chat_action.php' target='chat_input' method='GET' style='display:flex; gap:5px;'>
-                        <input type='hidden' name='react' value='1'>
-                        <input type='hidden' name='id' value='{$row['id']}'>
-                        <input type='text' name='emoji' placeholder='Custom...' required maxlength='10' 
-                               style='width:60px; background:#000; border:1px solid #333; color:#fff; font-size:0.7rem; padding:4px;'>
-                        <button type='submit' style='background:#222; color:#6a9c6a; border:1px solid #333; cursor:pointer;'>&gt;</button>
-                    </form>
-                </div>
-            </details>
-            $del_btn
-        </div>
-    </div>";
+    echo "<div class='msg-row' id='$dom_id' style='order: {$row['id']};'>
+            <div class='col-time'>$time</div>
+            $user_display_html
+            <div class='col-text' style='color:$msg_color;'>$text</div>
+            <div class='col-act'>
+                <a href='$reply_url' target='chat_input' class='action-link'>[reply]</a>
+                $del_btn
+            </div>
+        </div>";
 }
 ?>
 <!DOCTYPE html>
 <html>
 <head>
+    <meta http-equiv="refresh" content="900">
     <link rel="stylesheet" href="style.css">
     <style>
         /* FIXED: Allow body to expand beyond 100% for scrolling */
@@ -324,6 +229,9 @@ echo "
         }
         body { font-size: 0.75rem; } 
         
+        /* BUFFER: Keep only 50 visual elements to prevent crash/reset */
+        .msg-row:nth-last-of-type(n+51) { display: none !important; }
+
         .msg-row { 
             width: 100%; padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); 
             display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0; 
@@ -384,6 +292,11 @@ try {
     $last_pin_check = 0;
 
     while (true) {
+        // PERFORMANCE: Auto-exit to recycle worker
+        if ((time() - $start_time) > $recycle_time) {
+            exit; 
+        }
+
         $heartbeat++;
         $now = time();
         
@@ -629,7 +542,9 @@ try {
                 }
             }
         } // End Notification Check
-
+// HEARTBEAT: Force Nginx to keep connection open
+echo "\n"; 
+flush();
 echo " "; flush();
         
         // INTELLIGENT THROTTLE: Check if user is active in PMs to save CPU
