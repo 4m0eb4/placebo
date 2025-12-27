@@ -13,7 +13,7 @@ require 'bbcode.php';
 if (!isset($_SESSION['fully_authenticated'])) { header("Location: login.php"); exit; }
 
 // Fetch Target User
-$id = $_GET['id'] ?? $_SESSION['user_id'];
+$id = (int)($_GET['id'] ?? $_SESSION['user_id']); // [SEC] Force Integer
 // ADDED: chat_color, mute/slow status
 $stmt = $pdo->prepare("SELECT username, rank, chat_color, created_at, last_active, pgp_public_key, pgp_fingerprint, is_muted, slow_mode_override FROM users WHERE id = ?");
 $stmt->execute([$id]);

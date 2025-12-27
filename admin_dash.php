@@ -605,35 +605,42 @@ $pdo->prepare($sql)->execute($params);
             }
         }
 
-// APPROVE
-        if (isset($_POST['approve_link'])) {
+// APPROVE (DB KEEP or CHAT ONLY)
+        if (isset($_POST['approve_link']) || isset($_POST['approve_link_nodb'])) {
             $lid = $_POST['link_id'];
             $title_val = trim($_POST['link_title']);
             $app_msg = trim($_POST['approval_msg'] ?? ''); 
-            
-            // 1. Mark Approved
-            $stmt = $pdo->prepare("UPDATE shared_links SET status = 'approved', title = ? WHERE id = ?");
-            $stmt->execute([$title_val, $lid]);
-            
-            // 2. Fetch & Release
-            $stmt_l = $pdo->prepare("SELECT original_message, posted_by FROM shared_links WHERE id = ?");
+            $keep_db = isset($_POST['approve_link']);
+
+            // 1. Fetch Link Data First
+            $stmt_l = $pdo->prepare("SELECT original_message, posted_by, url FROM shared_links WHERE id = ?");
             $stmt_l->execute([$lid]);
             $link_row = $stmt_l->fetch();
-            
-            if ($link_row && !empty($link_row['original_message'])) {
-                $u_stmt = $pdo->prepare("SELECT id, rank, chat_color FROM users WHERE username = ?");
-                $u_stmt->execute([$link_row['posted_by']]);
-                $u_row = $u_stmt->fetch();
-                
-                $final_msg = $link_row['original_message'];
-                if (!empty($app_msg)) {
-                    $final_msg .= "\n\n[quote=SYSTEM][color=#6a9c6a]APPROVED:[/color] " . htmlspecialchars($app_msg) . "[/quote]";
+
+            if ($link_row) {
+                // 2. Update DB if keeping, else Delete
+                if ($keep_db) {
+                    $pdo->prepare("UPDATE shared_links SET status = 'approved', title = ? WHERE id = ?")->execute([$title_val, $lid]);
+                } else {
+                    $pdo->prepare("DELETE FROM shared_links WHERE id = ?")->execute([$lid]);
                 }
 
-                $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, 'normal')")
-                    ->execute([$u_row['id']??0, $link_row['posted_by'], $final_msg, $u_row['rank']??1, $u_row['chat_color']??'#888']);
+                // 3. Post to Chat
+                if (!empty($link_row['original_message'])) {
+                    $u_stmt = $pdo->prepare("SELECT id, rank, chat_color FROM users WHERE username = ?");
+                    $u_stmt->execute([$link_row['posted_by']]);
+                    $u_row = $u_stmt->fetch();
+                    
+                    $final_msg = $link_row['original_message'];
+                    if (!empty($app_msg)) {
+                        $final_msg .= "\n\n[quote=SYSTEM][color=#6a9c6a]APPROVED:[/color] " . htmlspecialchars($app_msg) . "[/quote]";
+                    }
+
+                    $pdo->prepare("INSERT INTO chat_messages (user_id, username, message, rank, color_hex, msg_type) VALUES (?, ?, ?, ?, ?, 'normal')")
+                        ->execute([$u_row['id']??0, $link_row['posted_by'], $final_msg, $u_row['rank']??1, $u_row['chat_color']??'#888']);
+                }
+                $msg = $keep_db ? "Link Approved & Saved." : "Link Approved to Chat (Not Saved).";
             }
-            $msg = "Link Approved.";
         }
         
         // REMOVE (SILENT DELETE)
@@ -1618,8 +1625,11 @@ if ($tab === 'logs') {
                         
                         <div style="width:1px; height:15px; background:#222; margin:0 2px;"></div>
 
-                        <button type="submit" name="approve_link" title="Approve"
-                                style="background:#0f1a0f; border:1px solid #6a9c6a; color:#6a9c6a; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold; font-family:monospace;">OK</button>
+                        <button type="submit" name="approve_link" title="Approve & Save to DB"
+                                style="background:#0f1a0f; border:1px solid #6a9c6a; color:#6a9c6a; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold; font-family:monospace;">SAVE</button>
+                        
+                        <button type="submit" name="approve_link_nodb" title="Approve to Chat Only (No DB)"
+                                style="background:#0f1a1a; border:1px solid #56b6c2; color:#56b6c2; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold; font-family:monospace;">CHAT</button>
                         
                         <button type="submit" name="remove_link" title="Remove (Silent)"
                                 style="background:#161616; border:1px solid #444; color:#888; cursor:pointer; padding:3px 8px; font-size:0.65rem; font-weight:bold; font-family:monospace;">RM</button>

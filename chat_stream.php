@@ -70,12 +70,10 @@ function process_mentions($text, $pdo) {
         $name = $matches[1];
         
         if (!isset($mention_style_cache[$name])) {
-            // Fetch style from DB
             $stmt = $pdo->prepare("SELECT chat_color FROM users WHERE username = ? LIMIT 1");
             $stmt->execute([$name]);
             $raw = $stmt->fetchColumn();
             
-            // Apply Auto-Paint Logic if no custom style
             if (empty($raw) || $raw === '#888888') {
                 $hash = md5($name);
                 $r = 120 + (hexdec(substr($hash, 0, 2)) % 135);
@@ -83,17 +81,20 @@ function process_mentions($text, $pdo) {
                 $b = 120 + (hexdec(substr($hash, 4, 2)) % 135);
                 $raw = sprintf("#%02x%02x%02x", $r, $g, $b);
             }
-            
             $mention_style_cache[$name] = $raw;
         }
 
         $style = $mention_style_cache[$name];
-        
-        // Determine if style is full CSS or just Hex
-        $final_css = (strpos($style, ':') !== false) ? $style : "color: $style";
-        
-        // Render styled mention
-        return "<span style='font-weight:bold; $final_css'>@$name</span>";
+        $display = "@" . $name;
+
+        // [FIX] Detect BBCode (e.g. [rainbow]) and parse it instead of using CSS
+        if (strpos($style, '[') !== false && strpos($style, ']') !== false) {
+             $bb = (strpos($style, '{u}') !== false) ? str_replace('{u}', $display, $style) : $style . $display;
+             return parse_bbcode($bb);
+        }
+
+        $final_css = (strpos($style, ':') !== false || strpos($style, ';') !== false) ? $style : "color: $style";
+        return "<span style='font-weight:bold; $final_css'>$display</span>";
     }, $text);
 }
 
@@ -106,11 +107,11 @@ function render_update($row, $rank, $presets) {
     $is_system = ($row['msg_type'] ?? 'normal') === 'system';
     $display_mode = $is_system ? 'block' : 'flex';
 
-    // Hide duplicates using CSS
+    // [FIX] Target ANY element (div or article) with these IDs to ensure old versions vanish
     echo "<style>
-        div[id='{$base_id}'] { display: none !important; }
-        div[id^='{$base_id}_'] { display: none !important; }
-        div[id='{$new_dom_id}'] { display: {$display_mode} !important; }
+        [id='{$base_id}'] { display: none !important; }
+        [id^='{$base_id}_'] { display: none !important; }
+        [id='{$new_dom_id}'] { display: {$display_mode} !important; }
     </style>";
     
     echo_message_v2($row, $rank, $new_dom_id, $presets);
@@ -275,7 +276,9 @@ function echo_message_v2($row, $viewer_rank, $dom_id, $presets) {
         // Opens profile in new window/tab to act as a "modal" without breaking stream
         $user_display_html = "<a href='profile.php?id={$row['user_id']}' target='_blank' class='col-user' style='text-decoration:none; cursor:pointer; $wrapper_style'>$clean_inner</a>";
     } else {
-$user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner</div>";
+        $user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner</div>";
+    }
+    
     $time = date('H:i', strtotime($row['created_at']));
     
     // [FIX] Process Mentions + BBCode
@@ -290,15 +293,33 @@ $user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner<
     $can_del = ($viewer_rank >= 5 || $is_mine);
     $del_btn = $can_del ? "<a href='chat_action.php?del={$row['id']}' target='chat_input' class='del-btn'>[x]</a>" : "";
 
-    echo "<div class='msg-row' id='$dom_id' style='order: {$row['id']};'>
+    // React Logic (Popup)
+    $react_html = "<details class='react-box'><summary class='action-link'>[+]</summary><div class='react-popup'><div class='react-presets'>";
+    foreach($presets as $emo) {
+        $react_html .= "<a href='chat_action.php?react=1&id={$row['id']}&emoji=$emo' target='chat_input' style='margin:0 4px; text-decoration:none; font-size:1.2rem;'>$emo</a>";
+    }
+    $react_html .= "</div></div></details>";
+
+    // React Logic (Badges Display)
+    $badge_html = "";
+    if (!empty($row['reactions'])) {
+        $counts = array_count_values(explode(',', $row['reactions']));
+        foreach($counts as $e => $c) {
+            // Clickable Badge: Adds +1 to this reaction
+            $badge_html .= "<a href='chat_action.php?react=1&id={$row['id']}&emoji=$e' target='chat_input' class='react-badge' style='text-decoration:none;' title='Add +1'>$e <span style='font-size:0.6rem; color:#777; margin-left:2px;'>$c</span></a>";
+        }
+    }
+
+    echo "<article class='msg-row' id='$dom_id' style='order: {$row['id']};'>
             <div class='col-time'>$time</div>
             $user_display_html
-            <div class='col-text' style='color:$msg_color;'>$text</div>
+            <div class='col-text' style='color:$msg_color;'>$text $badge_html</div>
             <div class='col-act'>
                 <a href='$reply_url' target='chat_input' class='action-link'>[reply]</a>
+                $react_html
                 $del_btn
             </div>
-        </div>";
+        </article>";
 }
 ?>
 <!DOCTYPE html>
@@ -322,7 +343,7 @@ $user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner<
         body { font-size: 0.75rem; } 
         
         /* BUFFER: Keep only 50 visual elements to prevent crash/reset */
-        .msg-row:nth-last-of-type(n+51) { display: none !important; }
+        article.msg-row:nth-last-of-type(n+51) { display: none !important; }
 
         .msg-row { 
             width: 100%; padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); 
@@ -340,18 +361,32 @@ $user_display_html = "<div class='col-user' style='$wrapper_style'>$clean_inner<
         .del-btn { color: #444; font-weight: bold; text-decoration: none; }
         .del-btn:hover { color: #e06c75; }
 
-        details.react-box { display: inline-block; position: relative; }
-        details.react-box summary { list-style: none; cursor: pointer; color: #555; }
+        details.react-box { display: inline-block; position: relative; vertical-align: middle; }
+        details.react-box summary { list-style: none; cursor: pointer; color: #555; font-weight: bold; }
         details.react-box summary:hover { color: #e5c07b; }
         
+        /* UPDATED: Pop-Left + High Z-Index to ensure clickability */
         .react-popup { 
-            position: absolute; right: 0; top: 100%; margin-top: 5px;
-            background: #161616; border: 1px solid #333; padding: 8px; 
-            z-index: 20; min-width: 150px; display: flex; flex-direction: column; gap: 5px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.8);
+            position: absolute; 
+            top: -5px; right: 25px; /* Pop to the LEFT of the [+] button */
+            background: #111; border: 1px solid #444; padding: 4px 8px; 
+            z-index: 99999; /* Max Z-Index */
+            min-width: max-content; display: flex; gap: 8px;
+            box-shadow: -5px 5px 15px rgba(0,0,0,0.9);
+            border-radius: 4px;
         }
-        .react-presets a { filter: grayscale(100%); transition: 0.2s; }
-        .react-presets a:hover { filter: grayscale(0%); transform: scale(1.2); }
+        .react-presets a { 
+            text-decoration: none; font-size: 1.2rem; display: inline-block;
+            filter: grayscale(100%); transition: 0.1s; cursor: pointer;
+        }
+        .react-presets a:hover { filter: grayscale(0%); transform: scale(1.3); }
+
+        .react-badge {
+            display: inline-block; font-size: 0.75rem; vertical-align: middle;
+            border: 1px solid #333; background: #0f0f0f; 
+            padding: 1px 4px; margin-left: 6px; border-radius: 3px;
+            color: #ccc; cursor: help;
+        }
     </style>
 </head>
 <body class="<?= $theme_cls ?? '' ?>" <?= $stream_bg_style ?? '' ?>>
@@ -360,8 +395,10 @@ try {
     // --- INITIAL HISTORY LOAD ---
     $cid = $_SESSION['active_channel'] ?? 1;
     // [FIX] LEFT JOIN users to get LIVE color updates (fixes stale colors)
+    // [FIX] Subquery to fetch reactions
     $stmt = $pdo->prepare("
-        SELECT sub.*, u.color_hex AS live_color 
+        SELECT sub.*, u.color_hex AS live_color,
+        (SELECT GROUP_CONCAT(emoji) FROM chat_reactions WHERE message_id = sub.id) as reactions
         FROM (
             SELECT * FROM chat_messages WHERE channel_id = ? ORDER BY id DESC LIMIT 50
         ) sub 
@@ -529,8 +566,10 @@ try {
         // 3. New Messages (Throttled)
         $cid = $_SESSION['active_channel'] ?? 1;
         // [FIX] LEFT JOIN users to get LIVE color updates
+        // [FIX] Subquery to fetch reactions
         $stmt = $pdo->prepare("
-            SELECT m.*, u.color_hex AS live_color 
+            SELECT m.*, u.color_hex AS live_color,
+            (SELECT GROUP_CONCAT(emoji) FROM chat_reactions WHERE message_id = m.id) as reactions
             FROM chat_messages m 
             LEFT JOIN users u ON m.user_id = u.id 
             WHERE m.id > ? AND m.channel_id = ? 
@@ -565,7 +604,14 @@ try {
                 echo "<style>div[id^='msg_'] { display: none !important; }</style>";
             }
             if ($sig['signal_type'] === 'REACT') {
-                $stmt_r = $pdo->prepare("SELECT * FROM chat_messages WHERE id = ?");
+                // [FIX] Fetch reactions so the re-rendered message has badges
+                $stmt_r = $pdo->prepare("
+                    SELECT m.*, u.color_hex AS live_color,
+                    (SELECT GROUP_CONCAT(emoji) FROM chat_reactions WHERE message_id = m.id) as reactions
+                    FROM chat_messages m 
+                    LEFT JOIN users u ON m.user_id = u.id 
+                    WHERE m.id = ?
+                ");
                 $stmt_r->execute([$target]);
                 $row_r = $stmt_r->fetch();
                 if ($row_r) render_update($row_r, $my_rank, $emoji_presets);
@@ -671,6 +717,7 @@ echo " "; flush();
 } catch (Exception $e) {
     echo "DB_ERROR: " . htmlspecialchars($e->getMessage()); 
 }
+
 ?>
 </body>
 </html>

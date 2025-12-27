@@ -124,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $clean_nick = preg_replace("/[^a-zA-Z0-9]/", "", $nick_val);
                 if(strlen($clean_nick) > 12) $clean_nick = substr($clean_nick, 0, 12);
                 if(!$clean_nick) $clean_nick = "Guest";
-                $guest_username = $clean_nick . "_" . $snippet;
+                $guest_username = $clean_nick . "_" . $snippet . "_" . bin2hex(random_bytes(2));
 
                 // 3. Start Session
                 session_regenerate_id(true);
